@@ -1,0 +1,532 @@
+# Centralisation des journaux
+
+## Présentation de la stack Promtail/Loki
+
+L’architecture de Loki est largement inspirée de Cortex et Thanos.
+
+https://grafana.com/docs/loki/latest/fundamentals/architecture/
+
+Depuis Loki v2.0, un stockage objet peut suffire, à la fois pour les blocks et les index. Grâce à boltdb-shipper, on peut se passer d'une base de données de type NoSQL, auparavant nécessaire.
+
+Documentation de boltdb-shipper : https://grafana.com/docs/loki/latest/operations/storage/boltdb-shipper/
+
+## Où sont produits les journaux
+
+L’infrastructure déployée produit déjà beaucoup de journaux :
+
+* Les composants Kubernetes pour le compte des tenants `{tenant-client1}` et `{tenant-hoster}` : API Server, Etcd, Kubeletc, etc
+* Les instance de l’application `demo-jres` pour le compte des tenants `{tenant-client1}` et `{tenant-client2}`
+* La VM vm-{tenant-client1} et Nginx qui tourne dessus
+
+Nous allons faire en sorte de respecter les mêmes labels que pour les métriques.
+
+.Les producteurs de journaux
+image::logs-ou-sont-ils.png[Les producteurs de journaux]
+
+.Les journaux et leurs labels
+image::logs-full-labels.png[Les journaux et leurs labels]
+
+## Installation de Loki
+
+Nous allons commencer par démarrer Loki sur la `vm-{tenant-hoster}`.
+
+Loki se présente sous la forme d’un binaire unique mais qui peut être démarré pour différents rôles.
+Il est possible de démarrer Loki sous une forme monolithique avec toutes les fonctionnalités nécessaire, ou bien de choisir une architecture distribuée et capable d’une mise à l’échelle horizontale.
+
+Grafana distingue 3 modes de déploiement de Loki : https://grafana.com/docs/loki/latest/fundamentals/architecture/deployment-modes
+
+Pour les besoins du tutoriel, le mode monolithique suffit largement.
+Grafana donne également quelques éléments pour dimensionner sa plateforme :
+
+* Monolithique : exécution unique du binaire Loki qui exécute tous les services, pour un volume inférieur à quelques centaines de Go par jour
+* Mise à l’échelle simple : on distingue les flux d’écriture et de lecture, en multipliant si besoin ces blocs services, pour un volume jusqu’à quelques To par jour
+* Mode micro service : chaque service de Loki est un process distinct pouvant être multiplié à l'envi, supérieur à quelques To par jour
+
+.Installation de Loki sur vm-{tenant-hoster}
+[source,console,subs="attributes"]
+----
+$ curl -O -L "https://github.com/grafana/loki/releases/download/v2.5.0/loki-linux-amd64.zip"
+$ unzip "loki-linux-amd64.zip" && rm "loki-linux-amd64.zip"
+$ sudo mv loki-linux-amd64 "/usr/local/bin/loki"
+$ sudo chmod a+x "/usr/local/bin/loki"
+$ loki --version
+----
+
+### Détail de la configuration
+
+.L'authentification et la prise en charge du multi-tenant sont pour l'instant désactivés
+[source,yaml]
+----
+include::example$/loki/loki-config.yaml[lines=2]
+[...]
+----
+
+.Configuration de l'external storage
+[source,yaml]
+----
+include::example$/loki/loki-config.yaml[lines=38..57]
+[...]
+----
+
+.Copie du fichier de configuration de Loki sur vm-{tenant-hoster}
+[source,console,subs="attributes"]
+----
+$ scp src/config/loki/loki-config.yaml debian@vm-{tenant-hoster}:~/
+----
+
+.Démarrage de Loki sur vm-{tenant-hoster}
+[source,console,subs="attributes"]
+----
+$ loki -config.file=loki-config.yaml
+----
+
+### Vérifications
+
+### Tests de l’accès à Loki
+
+Il est possible via une simple requête HTTP de vérifier si Loki est prêt à ingérer des logs fournis par des agents de collecte.
+
+.Depuis le poste de travail
+[source,console,subs="attributes"]
+----
+$ curl http://vm-{tenant-hoster}:3100/ready
+Ingester not ready: waiting for 15s after being ready
+----
+
+.Après quelques secondes :
+[source,console,subs="attributes"]
+----
+$ curl http://vm-{tenant-hoster}:3100/ready
+ready
+----
+
+## Collecteur de journaux : Promtail
+
+Loki étant prêt, on peut commencer à déployer les agents Promtail.
+
+### Déploiement de Promtail
+
+#### Détail de la configuration et installation
+
+Bien que Promtail ait des fonctionnalités avancées comme des pipelines de traitement permettant de transformer les journaux avant envoi à Loki, nous restons sur une configuration minimale qui consiste à ajouter des labels supplémentaires `external labels`` aux entrées de journaux avant export vers Loki.
+On pourrait par exemple extraire une information particulière d'une ligne de log pour la positionner en tant que label.
+
+#### Machine virtuelle `vm-{tenant-client1}`
+
+Comme tout composant de la solution Loki, Promtail est un exécutable unique sans dépendance externe.
+
+.Configuration de Promtail sur la VM pour externalisation des logs du système et des logs du serveur Nginx
+[source,yaml,subs="attributes"]
+----
+include::example$/promtail/vm-foo-promtail-config.yaml[]
+----
+
+.Copie du fichier de configuration :
+[source,console,subs="attributes"]
+----
+$ scp src/config/promtail/vm-foo-promtail-config.yaml debian@vm-{tenant-client1}:~/
+$ ssh debian@vm-{tenant-client1}
+----
+
+.Installation de Promtail :
+[source,console,subs="attributes"]
+----
+$ curl -O -L "https://github.com/grafana/loki/releases/download/v2.5.0/promtail-linux-amd64.zip"
+$ unzip "promtail-linux-amd64.zip" && rm "promtail-linux-amd64.zip"
+$ sudo mv promtail-linux-amd64 "/usr/local/bin/promtail"
+$ sudo chmod a+x "/usr/local/bin/promtail"
+$ promtail --version
+----
+
+.On démarre Promtail :
+[source,console,subs="attributes"]
+----
+$ sudo promtail -config.file vm-foo-promtail-config.yaml
+----
+
+#### Clusters
+
+Pour l’installation sur les clusters Kubernetes, on choisit la solution la plus simple : l’utilisation du chart Helm maintenu par Grafana : https://github.com/grafana/helm-charts/tree/main/charts/promtail
+
+NOTE: On utlise ici la version 3.11.0 du chart Promtail, car la dernière release v4.2.0 présente une regression : https://github.com/grafana/helm-charts/issues/1214
+
+.Ajout du dépôt Helm `prometheus-community` :
+[source,console,subs="attributes"]
+---- 
+$ helm repo add grafana https://grafana.github.io/helm-charts
+$ helm repo update
+----
+
+##### Cluster `kube-{tenant-client1}`
+
+Ce cluster appartient en totalité au tenant `{tenant-client1}`, aussi on fait en sorte de forcer le positionnement du label `tenant` sur tous les journaux transmis par Promtail à Loki.
+
+.Configuration des external labels pour les logs provenant du cluster kube-{tenant-client1}
+[source,yaml,subs="attributes"]
+----
+include::example$/promtail/values_kube-{tenant-client1}.yaml[lines=1..7]
+[...]
+----
+
+WARNING: Dans le cadre du tutoriel, on ajoute aux journaux tous les labels existants au niveau des producteurs sans prendre compte des possibles valeurs. 
+C'est une chose qui n'est pas souhaitable en production. En effet, pour se prémunir de problèmes de performances, on va choisir des labels qui ne sont pas susceptibles d'avoir trop de valeurs différentes, comme une adresse IP ou un identifiant unique par exemple. Dans le cas contraire la cardinalité va être trop élevée et cela posera des problèmes à l'indexation (lenteurs, occupation mémoire, etc).
+
+.On ajoute tous les labels des pods comme labels des logs :
+[source,yaml,subs="attributes"]
+----
+[...]
+include::example$/promtail/values_kube-{tenant-client1}.yaml[lines=8..10]
+----
+
+.Déploiement de Promtail sur tous les noeuds du cluster kube-{tenant-client1}
+[source,console,subs="attributes"]
+----
+$ kctx kube-{tenant-client1}
+$ kubectl create namespace promtail
+$ helm upgrade --install promtail grafana/promtail \
+--version 3.11.0 \
+--namespace=promtail \
+--values src/config/promtail/values_kube-{tenant-client1}.yaml \
+--set "config.lokiAddress=http://{vm-hoster-ip}:3100/loki/api/v1/push"
+----
+
+.On vérifie que Promtail démarre correctement
+[source,console,subs="attributes"]
+----
+$ kns promtail
+$ kubectl get pods -w
+----
+
+##### Cluster `kube-{tenant-hoster}-mutu`
+
+Comme ce cluster est mutualisé entre différents tenants, on considère que les producteurs de journaux font autorité sur la valeur du label `tenant` qu’ils portent.
+Aussi, dans un contexte Kubernetes, le label et la valeur de `tenant` est porté par les ressources Kubernetes elles-mêmes.
+Nous ne forçons pas le label `tenant=hoster` au niveau des external labels de Promtail, le label `tenant` sera traité comme les autres avec la configuration de relabeling :
+
+.Configuration des external labels pour les logs provenant du cluster kube-{tenant-hoster}-mutu
+[source,yaml,subs="attributes"]
+----
+include::example$/promtail/values_kube-{tenant-hoster}-mutu.yaml[lines=1..8]
+[...]
+----
+
+.Comme pour le cluster kube-{tenant-client1}, on ajoute tous les labels des pods comme labels des logs :
+[source,yaml,subs="attributes"]
+----
+[...]
+include::example$/promtail/values_kube-{tenant-hoster}-mutu.yaml[lines=9..11]
+----
+
+.Déploiement de Promtail sur tous les nœuds du cluster kube-{tenant-hoster}-mutu
+[source,console,subs="attributes"]
+----
+$ kubie ctx kube-{tenant-hoster}-mutu
+$ kubectl create namespace promtail
+$ helm upgrade --install promtail grafana/promtail \
+--version 3.11.0 \
+--namespace=promtail \
+--values src/config/promtail/values_kube-{tenant-hoster}-mutu.yaml \
+--set "config.lokiAddress=http://{vm-hoster-ip}:3100/loki/api/v1/push" 
+----
+
+.On vérifie que Promtail démarre correctement
+[source,console,subs="attributes"]
+----
+$ kns promtail
+$ kubectl get pods -w
+----
+
+## Loki dans Grafana
+
+### Ajout d’une source de donnée Loki
+
+Dans Grafana, on ajoute une source de donnée de type Loki avec l’adresse : http://vm-hoster:3100
+
+### Grafana Explore
+
+## LogCLI
+
+LogCLI est l’outil officiel en ligne de commande pour passer des requêtes LogQL auprès de Loki.
+
+Documentation officielle : https://grafana.com/docs/loki/next/tools/logcli/
+
+### Installation de logCLI
+[source,console]
+----
+$ wget -L "https://github.com/grafana/loki/releases/download/v2.5.0/logcli-linux-amd64.zip" -O /tmp/logcli.zip \
+&& sudo unzip /tmp/logcli.zip -d /tmp/ \
+&& sudo mv /tmp/logcli-linux-amd64 /usr/local/bin/logcli \
+&& rm /tmp/logcli.zip
+----
+
+### Configuration
+
+La configuration de l'enpoint Loki et de l'authentification peut se faire par variable d'environnement.
+Dans le cadre du tutoriel, nous n'avons pas mis en place de couche d'authentification, on ne positionne que `LOKI_ADDR`.
+[source,console,subs="attributes"]
+----
+$ export LOKI_ADDR=http://vm-{tenant-hoster}:3100
+----
+
+On peut ensuite interroger Loki via des requêtes LogQL :
+
+Dans un premier terminal, nous pouvons par exemple suivre en direct les logs de l’application `demo-jres` du tenant `{tenant-client1}` :
+
+[source,console,subs="attributes"]
+----
+$ logcli query '{tenant="foo",app_kubernetes_io_name="demo-jres"}' --tail
+----
+
+S’affiche les logs provenant des déploiements `pif` et `paf`.
+
+.Nous allons filtrer davantage sur l'instance `pif` :
+[source,console,subs="attributes"]
+----
+$ logcli query '{tenant="foo",app="pif"}' --tail --no-labels 
+----
+
+.On peut filtrer du contenu pour ne plus afficher les requêtes sur les endpoints de liveness et readiness
+[source,console,subs="attributes"]
+----
+$ logcli query '{tenant="foo",app="pif"} != "liveness" != "readiness"' --tail --no-labels
+----
+
+Pour vérifier le fonctionnement en temps réel, on peut produire des logs identifiables depuis un autre terminal :
+
+[source,console,subs="attributes"]
+----
+$ curl http://pif.foo/coucou
+----
+
+## Multi-tenancy
+
+Les déploiements actuels de Loki et des agents Promtail, bien qu'ils enregistrent le label et la valeur `tenant` quand il existe, ne sont pas configurés pour correctement prendre en charge le multi-tenant.
+
+Loki permet de le gérer au niveau du stockage en séparant les journaux par tenant mais également en permettant l’identification du tenant lors de la requête.
+
+Documentation officielle : https://grafana.com/docs/loki/latest/operations/multi-tenancy/
+
+### Reconfiguration de Loki
+
+La directive `auth_enabled` dans la configuration du Loki peut porter à confusion. Elle ne permet pas l’authentification au sens utilisateur/mot de passe. Il faudra la prendre en charge avec un composant tiers (un reverse proxy authentifiant par exemple : nginx, Apache, etc.).
+
+Cette option va activer le multi-tenant :
+
+* en séparant au stockage des données les journaux par tenant (auparavant toutes les données étaient stockées dans un dossier unique`fake`)
+* en n’autorisant les requêtes sur des données d’un tenant uniquement si l’entête HTTP `X-Scope-OrgID` avec comme valeur l’identifiant du tenant est transmise avec la requête LogQL
+
+.Contenu actuel du bucket `logs`
+image::logs-bucket-avant-multitenant.png[Contenu actuel du bucket `logs`, tous les logs sont dans un dossier unique `fake`]
+
+WARNING: Dans le cadre de ce tutoriel, les identifiants des tenants sont volontairement explicites et simples. Dans un contexte de production les identifiants des tenants devront être durcis.
+
+WARNING : Dans le cadre de ce tutoriel, les identifiants des tenants sont volontairement explicites et simples. Dans un contexte de production, les identifiants des tenants devront être durcis. Cela ne doit pas non plus remplacer une authentification et autorisation dans les règles de l’art 
+
+.On édite le fichier de configuration de Loki pour activer l’authentification
+[source,yaml]
+----
+auth_enabled: true
+[...]
+----
+
+.On relance Loki
+[source,console,subs="attributes"]
+----
+$ loki -config.file=loki-config.yaml
+----
+
+.On vérifie que Loki est bien démarré
+[source,console,subs="attributes"]
+----
+$ curl http://vm-{tenant-hoster}:3100/ready
+----
+
+### Promtail
+
+En tant qu’agent collecteur et d’envoi de logs à Loki, Promtail doit être configuré pour préciser à quel tenant les journaux appartiennent.
+Loki maintiendra des cibles de stockage distincts en fonction de la clef `tenant_id`.
+
+La valeur de cette clef peut être définie statiquement ou dynamiquement en fonction d'un autre label voire même en fonction du contenu de la ligne de log.
+
+#### Machine virtuelle `vm-{tenant-client1}`
+
+.Cette VM appartenant entièrement au tenant {tenant-client1}, on édite la configuration de Promtail pour préciser une valeur statique de tenant_id
+[source,yaml,subs="attributes"]
+----
+include::example$/promtail/vm-foo-promtail-config-multitenant.yaml[lines=5..11]
+----
+
+.On relance Promtail :
+[source,console]
+----
+$ promtail -config.file vm-foo-promtail-config.yaml
+----
+
+#### Clusters `kube-{tenant-client1}`
+
+Ce cluster appartient en totalité au tenant `{tenant-client1}`, aussi on défini `tenant_id` avec une valeur statique pour tous les journaux de ce cluster.
+
+.Valeur statique pour tenant_id
+[source,yaml,subs="attributes"]
+----
+include::example$/promtail/values_kube-{tenant-client1}_multitenant.yaml[lines=1..8]
+[...]
+----
+
+.On applique cette nouvelle configuration par mise à jour du déploiement Helm de Promtail sur le cluster kube-{tenant-client1}
+[source,console,subs="attributes"]
+----
+$ kctx kube-{tenant-client1}
+$ helm upgrade --install promtail grafana/promtail \
+--version 3.11.0 \
+--namespace=promtail \
+--values src/config/promtail/values_kube-{tenant-client1}_multitenant.yaml \
+--set "config.lokiAddress=http://{vm-hoster-ip}:3100/loki/api/v1/push"
+----
+
+#### Cluster `kube-{tenant-hoster}-mutu`
+
+Comme ce cluster est mutualisé entre différents tenants, on considère que les producteurs de journaux font autorité sur la valeur du label `tenant`.
+Aussi, dans un contexte Kubernetes, le label `tenant` est porté par les ressources Kubernetes elles-mêmes.
+Nous n'appliquons pas une valeur statique à `tenant_id`, nous configurons Promtail pour qu'il reprenne dynamiquement la valeur du label `tenant` existant au niveau des producteurs.
+
+.Configuration des external labels pour les logs provenant du cluster kube-{tenant-hoster}-mutu
+[source,yaml,subs="attributes"]
+----
+include::example$/promtail/values_kube-{tenant-hoster}-mutu_multitenant.yaml[lines=1..11]
+[...]
+----
+
+.On applique cette nouvelle configuration par mise à jour du déploiement Helm de Promtail sur le cluster kube-{tenant-hoster}-mutu
+[source,console,subs="attributes"]
+----
+$ kubie ctx kube-{tenant-hoster}-mutu
+$ helm upgrade --install promtail grafana/promtail \
+--version 3.11.0 \
+--namespace=promtail \
+--values src/config/promtail/values_kube-{tenant-hoster}-mutu_multitenant.yaml \
+--set "config.lokiAddress=http://{vm-hoster-ip}:3100/loki/api/v1/push" 
+----
+
+### Vérification du stockage et de l'accès multi-tenant
+
+#### Stockage
+
+Tout d'abord, nous pouvons vérifier comment évolue le contenu de notre bucket `logs`.
+
+Comme on l’a vu précédemment, Loki va séparer les données de logs par tenant en créant un dossier pour chacun.
+
+.Contenu du bucket `logs` après activation du multi-tenant
+image::logs-bucket-apres-mutitenant.png[]
+
+#### À la lecture
+
+##### LogCli
+
+Jouons avec logCli et reprenons la dernière requête passée :
+
+[source,console,subs="attributes"]
+----
+$ logcli query '{tenant="foo",app="pif"} != "liveness" != "readiness"' --tail --no-labels
+ws://vm-hoster:3100/loki/api/v1/tail?limit=30&query=%7Btenant%3D%22foo%22%2Capp%3D%22pif%22%7D+%21%3D+%22liveness%22+%21%3D+%22readiness%22&start=1651614124476565834
+Tailing logs failed: Error response from server: no org id
+(websocket: bad handshake)
+----
+
+La commande abouti en erreur, aucun orgID n'a été passé avec notre requête et Loki rejette la requête.
+
+Si on précise maintenant notre tenant `{tenant-client1}` via l’option `--org-id` :
+[source,console,subs="attributes"]
+----
+$ logcli query '{tenant="foo",app="pif"} != "liveness" != "readiness"' --tail --no-labels --org-id foo
+----
+
+On doit bien voir les logs produits par des composants appartenant au tenant `{tenant-client1}`.
+
+Si on rejoue une requête HTTP simple, les logs s'affichent bien en continu :
+
+[source,console,subs="attributes"]
+----
+$ curl http://pif.foo/coucou-tenant-foo
+----
+
+Si on relance une requête LogCLI en mettant en contradiction le filtre sur le label tenant et la valeur de OrgID, nous n’affichons plus aucun logs :
+[source,console,subs="attributes"]
+----
+$ logcli query '{tenant="bar"}' --tail --no-labels --org-id foo
+----
+
+On positionne la même valeur au filtre et orgID, sur `{tenant-client2}`
+[source,console,subs="attributes"]
+----
+$ logcli query '{tenant="bar"}' --tail --no-labels --org-id bar
+----
+
+[source,console,subs="attributes"]
+----
+$ curl http://pouf.bar/hello-tenant-bar
+----
+
+Les flux de lecture sont correctement séparés par tenant.
+
+##### Multi-tenant dans Grafana
+
+En retournant dans Grafana et dans les propriétés de la source de données Loki créée plus tôt, on clique sur `Save & Test`.
+Grafana nous affiche une erreur 400 :
+
+.Erreur d’authentification auprès de la datasource Loki
+image::logs-grafana-erreur.png[Erreur d’authentification auprès de la datasource Loki]
+
+Nous allons créer une nouvelle datasource dédiée aux journaux du tenant `{tenant-client1}` en précisant un entête HTTP custom :
+
+* Header : `X-Scope-OrgID`
+* Value : `{tenant-client1}`
+
+Grafana se connecte et récupère bien des données auprès de Loki
+
+image::logs-grafana-ok.png[Grafana se connecte et récupère bien des données auprès de Loki]
+
+Dans l'interface Explore, on peut lancer différentes requête pour s’assurer du bon comportement :
+
+[source,console,subs="attributes"]
+----
+{tenant="foo"} # tous les logs du tenant {tenant-client1}
+{tenant!="foo",app=~".+"} # tous les logs n’appartenant pas à {tenant-client1}
+----
+
+Nous pouvons créer 2 nouvelles sources de données pour les 2 tenants restant `{tenant-client2}` et `{tenant-hoster}` en précisant l’entête HTTP adapté.
+
+##### Tenant Hoster
+
+Après création d’une source de données pour le tenant `{tenant-hoster}`, et en cherchant à afficher les logs de ce tenant :
+
+.Tous les logs du tenant hoster
+[source,console,subs="attributes"]
+----
+{tenant="hoster"}
+----
+
+Rien ne s’affiche.
+
+À ce stade c’est normal, en effet les composants du cluster Kuernetes du tenant `{tenant-hoster}` produisent bien des logs, on peut les afficher via une requête `kubectl`. Par exemple en affichant les logs de l'ingress controller installé au sein du cluster :
+
+[source,console,subs="attributes"]
+----
+$ kubectl --namespace ingress-nginx logs -l app.kubernetes.io/name=ingress-nginx
+----
+
+Si on regarde les labels du pod, on se rend compte qu’il manque un label `tenant` :
+
+[source,console,subs="attributes"]
+----
+$ kubectl --namespace ingress-nginx get pods -l app.kubernetes.io/name=ingress-nginx --show-labels
+----
+
+Nous allons rapidement éditer le deployment pour ajouter le label tenant à la valeur `hoster` :
+
+[source,console,subs="attributes"]
+----
+$ kubectl patch deployment ingress-nginx-controller --type=json -p='[{"op": "add", "path": "/spec/template/metadata/labels/tenant", "value": "hoster"}]'
+----
+
+Si on retourne dans Grafana, et qu'on actualise notre recherche, les logs de l'ingress controller devraient arriver d'ici quelques secondes, le temps que l'ingress controller redémarre avec le bon label et que Promtail traite les logs.

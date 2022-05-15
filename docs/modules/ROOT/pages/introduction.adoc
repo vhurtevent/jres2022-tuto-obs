@@ -1,0 +1,32 @@
+= Introduction
+
+Ce tutoriel a pour objectif la mise en place d’une centralisation de métriques et de journaux performante et économique.
+
+Après le déploiement rapide d’une infrastructure définie logiciellement qui comporte :
+
+* plusieurs machines virtuelles productrices de métriques et de journaux pour la supervision d’applications non conteneurisées ;
+* plusieurs clusters Kubernetes qui permettront d’illustrer l’utilisation de Prometheus et les avantages de Thanos notamment ses fonctionnalités de supervision globale (multi clusters) ;
+* plusieurs applications déployées dans Kubernetes, productrices de métriques et de journaux ;
+* un stockage objet compatible S3 pour le stockage des données centralisées ;
+* Nous détaillerons au travers d’un pas à pas didactique les étapes de préparation et de déploiement des briques techniques permettant d’aboutir à une plateforme de centralisation et de consultation des métriques et des journaux.
+
+xref:mise-en-place.adoc[Mise en place du tutoriel]
+
+La pile technique retenue pour la centralisation des métriques est constituée de :
+
+* exporters, agents logiciels qui exposeront des métriques pour Prometheus ;
+* Prometheus, qui moissonnera les métriques exposées par les différents exporters et applications productrices de métriques ;
+* Thanos, qui se chargera de la centralisation des métriques sur un stockage objet et qui offrira une interface unique pour les interroger ;
+* Grafana, qui nous permettra de fouiller les métriques et d’en faire des graphiques et tableaux de bord.
+
+xref:metriques.adoc[Centralisation et consultation des métriques avec Thanos]
+
+La pile technique pour la centralisation des journaux est constituée de :
+
+* Promtail, un agent qui recoltera les journaux produits par les systèmes et applications et permettra de les enrichir de metadonnées ;
+* Loki, qui s’occupera d’ingérer les journaux transmis par les agents Promtail, de les stocker sur un stockage objet et de les indexer pour faciliter leur fouille;
+* Grafana, déjà utilisé pour les métriques, qui nous offrira une vue et une recherche unifiée sur les journaux.
+
+xref:journaux.adoc[Centralisation et consultation des journaux avec Loki]
+
+Nous ponctuerons le tutoriel de notre retour d’expérience sur ces outils dans le cadre de la construction et de l’hébergement du logiciel Pégase au sein de PC-SCOL.

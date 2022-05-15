@@ -1,0 +1,14 @@
+[
+  {
+    "targets": [ "172.16.101.69:9100" ],
+    "labels": {
+      "tenant": "foo", "hostname": "vm-foo"
+    }
+  },
+  {
+    "targets": [ "172.16.101.69:9113" ],
+    "labels": {
+      "tenant": "foo", "app": "web"
+    }
+  }
+]

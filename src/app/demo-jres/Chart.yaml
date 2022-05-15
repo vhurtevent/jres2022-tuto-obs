@@ -1,0 +1,6 @@
+apiVersion: v2
+name: demo-jres
+description: Application de démonstration pour tuto JRES 2022
+type: application
+version: "0.1.0"
+appVersion: "0.1.0"

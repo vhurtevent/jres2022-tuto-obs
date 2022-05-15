@@ -1,0 +1,13 @@
+site:
+  title: "[ALERT] SUPERVISION IS DOWN, OBSERVABILITY IS UP"
+  url: https://vhurtevent.github.io/
+content:
+  sources:
+  - url: .
+    start_path: docs
+    branches: develop
+ui:
+  bundle:
+    url: https://gitlab.com/antora/antora-ui-default/-/jobs/artifacts/HEAD/raw/build/ui-bundle.zip?job=bundle-stable
+    snapshot: true
+  supplemental_files: './supplemental-ui'

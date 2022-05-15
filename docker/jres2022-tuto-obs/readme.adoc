@@ -1,0 +1,52 @@
+# Poste de travail
+
+## Outils
+
+### Terminal 
+
+https://github.com/nicolaka/netshoot/blob/master/zshrc
+
+https://ohmyz.sh/
+https://github.com/romkatv/powerlevel10k
+https://starship.rs/
+
+Tmux
+
+#### Completions
+
+* Git
+* Kubectl
+* Helm
+* OpenStack
+* AWS CLI
+
+### Code
+
+* Git
+
+### Clients Réseau
+
+* OpenSSH
+* CURL
+* Wget
+* HTTPie
+
+### Infrastructure as Code
+
+* Terraform
+* Ansible
+
+### Cloud Infrastructure
+
+* OpenStack CLI
+* AWS CLI
+* S3cmd
+
+### Kubernetes
+
+* Kubectl
+* Kubie
+* Helm
+* Krew
+
+

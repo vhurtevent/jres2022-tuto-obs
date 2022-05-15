@@ -1,0 +1,33 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  annotations:
+    meta.helm.sh/release-name: kube-prometheus-stack
+    meta.helm.sh/release-namespace: kube-prometheus-stack
+  creationTimestamp: "2022-03-26T17:12:43Z"
+  generation: 1
+  labels:
+    app: kube-prometheus-stack-alertmanager
+    app.kubernetes.io/instance: kube-prometheus-stack
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: kube-prometheus-stack
+    app.kubernetes.io/version: 34.1.1
+    chart: kube-prometheus-stack-34.1.1
+    heritage: Helm
+    release: kube-prometheus-stack
+  name: kube-prometheus-stack-alertmanager
+  namespace: kube-prometheus-stack
+  resourceVersion: "895427"
+  uid: f0fb70bd-f15c-473c-8dd8-ecf8825e0271
+spec:
+  endpoints:
+  - path: /metrics
+    port: http-web
+  namespaceSelector:
+    matchNames:
+    - kube-prometheus-stack
+  selector:
+    matchLabels:
+      app: kube-prometheus-stack-alertmanager
+      release: kube-prometheus-stack
+      self-monitor: "true"

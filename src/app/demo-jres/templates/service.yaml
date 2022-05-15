@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "demo-jres.fullname" . }}
+  labels:
+    {{- include "demo-jres.labels" . | nindent 4 }}
+    {{- with .Values.extraLabels }}
+    {{- toYaml . | nindent 4}}
+    {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      protocol: TCP
+      name: app
+  selector:
+    {{- include "demo-jres.selectorLabels" . | nindent 4 }}

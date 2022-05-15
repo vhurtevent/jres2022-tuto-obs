@@ -1,0 +1,26 @@
+name: "JRES2022-Tutoriel_Observabilité"
+title: "[ALERT] SUPERVISION IS DOWN, OBSERVABILITY IS UP"
+version: master
+start_page: introduction.adoc
+nav:
+  - modules/ROOT/nav.adoc
+asciidoc:
+  attributes:
+    allow-uri-read: true
+    page-toclevels: 5
+    workspace-dir: ~/workspace
+    tuto-docker-image: vhurtevent/jres2022-tuto-obs
+    tuto-github-repo-url: https://www.github.com/vhurtevent/jres2022-tuto-obs
+    tuto-github-repo-name: jres2022-tuto-obs
+    bucket-metrics: metrics
+    bucket-logs: logs
+    tenant-hoster: hoster
+    tenant-client1: foo
+    tenant-client2: bar
+    tenant-client1-app1: pif
+    tenant-client1-app2: paf
+    tenant-client2-app1: pouf
+    vm-client1-ip: "172.16.101.69"
+    vm-hoster-ip: "172.16.102.113"
+    kube-client1-ip: "172.16.101.123"
+    kube-hoster-ip: "172.16.102.141"

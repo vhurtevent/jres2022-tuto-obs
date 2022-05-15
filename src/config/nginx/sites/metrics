@@ -1,0 +1,13 @@
+## Serveur local pour exposer le status Nginx
+## Le Nginx Prometheus Exporter consommera cette ressource
+## pour ré-exposer les métriques dans un format compatible Prometheus
+
+server {
+    listen localhost:81;
+    location /metrics {
+        stub_status on;
+    }
+
+    access_log /var/log/nginx/access-status.log;
+    error_log /var/log/nginx/error-status.log;
+}

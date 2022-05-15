@@ -1,0 +1,90 @@
+== Bibliographie & Liens
+
+=== Prometheus
+
+* Site officiel : https://prometheus.io/
+
+.Stockage
+* Le stockage dans Prometheus : https://prometheus.io/docs/prometheus/latest/storage/
+* TSDB - Time Serie DataBase : https://github.com/prometheus/prometheus/tree/main/tsdb/docs/format
+
+.Service Discovery
+* Les Service Discveries de Prometheus : https://inuits.eu/blog/prometheus-http-service-discovery/
+* HTTP SD utilisé dans le tutoriel : https://prometheus.io/docs/prometheus/latest/configuration/configuration/#http_sd_config
+
+.Podcasts & vidéos
+
+* Electro Monkeys : https://podcasts.apple.com/fr/podcast/prometheus-avec-julien-pivotto/id1503255739?i=1000479487730
+
+==== Exporters
+
+* Exporters : https://prometheus.io/docs/instrumenting/exporters/
+* Node Exporter : https://github.com/prometheus/node_exporter
+* Nginx : https://nginx.org/
+* Exporter Prometheus Exporter : https://github.com/nginxinc/nginx-prometheus-exporter
+* Module Nginx Status : https://nginx.org/en/docs/http/ngx_http_stub_status_module.html
+* Exporter Nginx VTS : https://github.com/hnlq715/nginx-vts-exporter
+* Exporter Nginx VTS : https://github.com/vozlt/nginx-module-vts
+
+=== PromQL
+
+.Documentations
+* https://prometheus.io/docs/prometheus/latest/querying/basics/
+* https://prometheus.io/docs/prometheus/latest/querying/operators/
+* https://prometheus.io/docs/prometheus/latest/querying/functions/
+* https://prometheus.io/docs/prometheus/latest/querying/examples/
+* https://prometheus.io/docs/prometheus/latest/configuration/recording_rules/#recording-rules
+
+.Tutoriaux
+* https://valyala.medium.com/promql-tutorial-for-beginners-9ab455142085
+* https://valyala.medium.com/prometheus-storage-technical-terms-for-humans-4ab4de6c3d48
+* https://valyala.medium.com/how-to-optimize-promql-and-metricsql-queries-85a1b75bf986
+
+.Cheat Sheet
+* https://promlabs.com/promql-cheat-sheet/
+* https://okulbida.com/pf-infographic-promql-cheatsheet.pdf
+
+.Outils
+* PromQL-CLI : https://github.com/nalbury/promql-cli   
+* PromLens : https://promlens.com/
+* Grafterm : https://github.com/slok/grafterm
+
+=== OpenMetrics
+
+* Spécifications : https://openmetrics.io/
+* What You Need to Know About OpenMetrics : https://www.youtube.com/watch?v=C-BJAzCiMyY
+* OpenMetrics à la CNCF : https://www.cncf.io/blog/2022/02/03/cncf-cultivated-openmetrics-becomes-an-incubating-project/
+* Exemplar : https://grafana.com/blog/2021/03/31/intro-to-exemplars-which-enable-grafana-tempos-distributed-tracing-at-massive-scale/
+* Histogramme haute résolution :  https://grafana.com/blog/2021/11/03/how-sparse-histograms-can-improve-efficiency-precision-and-mergeability-in-prometheus-tsdb/
+
+=== Thanos
+
+* Documentation : https://thanos.io/
+* Stockage : https://thanos.io/tip/thanos/storage.md/#data-in-object-storage
+* La déduplication :https://thanos.io/tip/thanos/quick-tutorial.md/#deduplicating-data-from-prometheus-ha-pairs
+
+.Cours & Tutoriels 
+* https://www.youtube.com/watch?v=6Nx2BFyr7qQ
+* https://katacoda.com/thanos/courses/thanos/1-globalview
+* https://thanos.io/tip/thanos/quick-tutorial.md/
+
+.Podcasts & vidéos
+
+* Electro Monkeys : https://podcasts.apple.com/fr/podcast/de-prometheus-%C3%A0-thanos-avec-simon-pasquier/id1503255739?i=1000506688050
+
+=== Loki
+
+* Site officiel : https://grafana.com/oss/loki/
+
+.Podcasts & vidéos
+
+* Electro Monkeys : https://podcasts.apple.com/fr/podcast/grafana-loki-avec-cyril-tovena/id1503255739?i=1000517952859
+
+==== Promtail
+
+* Documentation : https://grafana.com/docs/loki/latest/clients/promtail/
+
+===== LogQL
+
+* Documentation  : https://grafana.com/docs/loki/latest/logql/
+* Cheat sheet : https://megamorf.gitlab.io/cheat-sheets/loki/

@@ -1,0 +1,935 @@
+# Centralisation des métriques
+
+L’infrastructure déployée précédemment est composée de différents producteurs de métriques. Le tableau suivant dresse une liste exhaustive des métriques que l’on pourrait moissonner et centraliser.
+
+Les métriques traitées dans le cadre du tutoriel sont identifiées.
+
+[cols="1,1,1,1"]
+|===
+|Couche |Portée |Source |Traité dans le tutoriel
+
+|Demo-jres |États internes de l’application |Les composants exposent nativement leurs métriques |Oui
+|Nginx |États internes du serveur web |nginx-prometheus-exporter | Oui
+|Kubernetes |Ressources Kube : pod, deployment, service, etc |Kube-State-Metrics |Oui
+|Kubernetes |Composants Kube : etcd, scheduler, kubelet, etc |Les composants exposent nativement leurs métriques |Oui
+|VM |Machine virtuelle, système |Node Exporter |Oui
+|IaaS |Plateforme de virtualisation |Exporter OpenStack |Non
+|Hyperviseur |Serveur physique exécutant les VMs |Node Exporter |Non
+|Datacenter |Équipements électriques, refroidissement, etc |Exporter SNMP ou spécifique à écrire |Non
+|===
+
+## Prometheus
+
+Le projet Prometheus est constitué de plusieurs composants. Nous ne les utiliserons pas tous dans le cadre de ce tutoriel, nous nous concentrerons sur : 
+
+* Prometheus Server
+* Les exporters
+* Prometheus Expression Browser (Web UI)
+
+Documentation officielle sur l’architecture de Prometheus : https://prometheus.io/docs/introduction/overview/#architecture
+
+image::https://prometheus.io/assets/architecture.png[]
+
+### Prometheus Server
+
+Le Prometheus Server a pour mission le stockage de métriques qu’il vient moissonner auprès des producteurs dans un mode PULL
+Prometheus Server connaît les producteurs, soit par configuration statique (définies au sein de fichiers de configuration), soit par des mécanismes de Service Discovery (SD).
+Cette fonctionnalité est particulièrement intéressante, car dans une infrastructure qui vit, qui évolue rapidement et qui est potentiellement automatisée, il devient impossible de fonctionner avec des configurations statiques.
+
+Prometheus sait utiliser différents types de SD : https://prometheus.io/docs/prometheus/latest/configuration/configuration/
+
+Il sait par exemple nativement découvrir les producteurs (cible ou target dans le vocabulaire Prometheus) auprès de services assez simples :
+
+* HTTP (SD JSON)
+* DNS
+* Consul
+
+Il sait aussi consommer les API d'infrastructures Cloud ou de virtualisation :
+
+* Azure
+* EC2
+* OpenStack
+
+Ou en interrogeant des solutions d’orchestration d’application ou de conteneur :
+
+* Docker/Docker Swarm
+* Kubernetes
+* Marathon
+
+INFO: Nous utiliserons les services discovery HTTP_SD et Kubernetes_SD dans le cadre de ce tutoriel
+
+Une fois les métriques moissonnées auprès des producteurs (Services), il va les stocker dans un format spécifique dédié au stockage de séries temporelles ou timeseries (TSDB).
+
+Pour plus d’informations sur la technologie de stockage de Prometheus :
+
+* Modèle de donnée : https://prometheus.io/docs/concepts/data_model/
+* Le stockage dans Prometheus : https://prometheus.io/docs/prometheus/latest/storage/
+
+Quand il moissonne les métriques, Prometheus va lui attacher des labels. Ils peuvent être définis par le producteur lui-même et peuvent être modifiés et augmentés par Prometheus en fonction de sa configuration.
+
+Une métrique est caractérisée par :
+
+* son nom
+* ses labels
+* sa valeur
+
+Prometheus supporte nativement 4 types de métriques : https://prometheus.io/docs/concepts/metric_types/
+
+INFO: L'application `demo_jres` développée pour ce tutoriel expose 3 types de métriques.
+
+Prometheus expose une API HTTP qui va nous permettre d’interagir avec lui et de lui soumettre des requêtes dans le langage PromQL.
+
+PromQL : https://prometheus.io/docs/prometheus/latest/querying/basics/
+
+### Exporter
+
+Les exporters sont les producteurs de métriques évoqués plus tôt.
+Un système ou une application peut très bien être conçu pour exposer de lui-même des métriques pour les rendre accessibles à Prometheus qui viendra les moissonner de façon régulière. Cela nécessite de les exposer dans le format attendu par Prometheus et qu’elles soient accessibles va une simple requête HTTP GET.
+
+Pour les systèmes qui n’ont pas nativement ce niveau d’intégration avec Prometheus, il existe des exporters, des agents logiciels, qui vont récupérer ou calculer des métriques depuis le système pour ensuite les exposer dans une forme compatible avec Prometheus.
+
+Il existe de très nombreux exporters pour outiller les composants d’infrastructures et d’applications : https://prometheus.io/docs/instrumenting/exporters/
+
+Un certain nombre de bibliothèques de développement dans différents langages permettent également l’écriture d’exporter assez facilement.
+
+INFO : L’application `demo-jres` écrite en Python utilise la bibliothèque `client_prometheus` pour exposer des métriques conçus pour le tutoriel.
+
+INFO: Nous utiliserons l'exporter `nginx-prometheus-exporter` pour exposer les métriques de l’instance Nginx déployée sur la vm vm-{tenant-client1}.
+
+### Prometheus Expression Browser (Web UI)
+
+Prometheus offre une interface Web volontairement simple en termes de visualisation mais qui permet de vérifier rapidement le bon fonctionnement de Prometheus :
+
+* Découverte des cibles
+* Visualisation de la configuration en cours d’exécution
+* Requête et graphiques des métriques
+
+## Architecture envisagée
+
+Nous considérons Prometheus comme une brique intermédiaire de collecte de métriques. L’idée est de définir des zones où Prometheus peut être autonome.
+
+Voici les zones retenues dans le cadre du tutoriel :
+
+.Infrastructures du tenant `{tenant-client1}`
+
+Prometheus déployé au sein du cluster `kube-{tenant-client1}`, il moissonnera les métriques exposées à tous les niveaux au sein du cluster et aussi les métriques exposées par la machine virtuelle `vm-{tenant-client1}` (métriques du système et les métriques Nginx).
+
+.Infrastructures de l’hébergeur `{tenant-hoster}`
+
+Prometheus déployé au sein du cluster `kube-{tenant-hoster}`, il moissonnera les métriques exposées à tous les niveaux au sein du cluster.
+
+### Méthodes de déploiement de Prometheus
+
+Il existe différentes méthodes pour déployer Prometheus au sein de Kubernetes, via :
+
+* des manifests statiques (fichiers de configuration YAML statiques)
+* un chart Helm (format de paquet pour le déploiement d’application dans Kubernetes)
+* un operator pour une gestion intégrée via Kubernetes de la configuration de Prometheus (services à moissonner, gestion des labels, etc)
+
+Pour nous simplifier le déploiement de Prometheus mais également des exporters nécessaires à la production et l’exposition des métriques des composants du cluster Kubernetes, nous utilisons le chart Helm `Kube-prometheus-stack`. Il s’agit de la méthode recommandée et du chart le plus populaire au sein de la communauté.
+
+Il intègre les composants suivants :
+
+* Prometheus Operator avec un premier Prometheus Server
+* Node Exporters en exécution sur chacun des nœuds qui constituent le cluster
+* Kube State Metrics pour obtenir des métriques sur les ressources Kubernetes
+* Une instance Grafana pour consulter et visualiser les métriques
+* Des tableaux de bord Grafana prédéfinis pour la supervision des composants Kubernetes et des ressources déployées au sein du cluster
+
+## Préparation au déploiement de Prometheus
+
+.Ajout du dépôt Helm `prometheus-community` :
+[source,console]
+----
+$ helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+$ helm repo update
+----
+
+On peut afficher la configuration par défault du chart Helm :
+
+[source,console]
+----
+$ helm show values prometheus-community/kube-prometheus-stack --version 35.0.3
+----
+
+## Focus sur la configuration
+
+.Activation de l'operator Prometheus
+[source,yaml]
+----
+include::example$/kube-prometheus-stack/custom-values.yaml[lines=1457..1458]
+[...]
+----
+
+.Activation d’une instance Prometheus
+[source,yaml]
+----
+include::example$/kube-prometheus-stack/custom-values.yaml[lines=1752..1756]
+[...]
+----
+
+.Point sur la rétention
+[source,yaml]
+----
+include::example$/kube-prometheus-stack/custom-values.yaml[lines=2341..2343]
+[...]
+----
+
+.Activation des NodeExporter (sous-chart)
+[source,yaml]
+----
+include::example$/kube-prometheus-stack/custom-values.yaml[lines=1394..1397]
+[...]
+----
+
+.Désactivation d'AlertManager
+[source,yaml]
+----
+include::example$/kube-prometheus-stack/custom-values.yaml[lines=128..132]
+[...]
+----
+
+.Activation de Grafana (sous-chart)
+[source,yaml]
+----
+include::example$/kube-prometheus-stack/custom-values.yaml[lines=649..650]
+[...]
+----
+
+.Activation de la dataSource par défault
+[source,yaml]
+----
+include::example$/kube-prometheus-stack/custom-values.yaml[lines=731..733]
+[...]
+----
+
+.Grafana adminPassword
+[source,yaml]
+----
+include::example$/kube-prometheus-stack/custom-values.yaml[lines=680]
+[...]
+----
+
+## Déploiement de Prometheus
+
+### Cluster `kube-{tenant-client1}`
+
+On déploie le chart Helm kube-prometheus-stack sur le cluster `kube-{tenant-client1}` en prenant soin de créer un namespace dédié au préalable :
+
+[source,console,subs="attributes"]
+----
+$ kctx kube-{tenant-client1}
+----
+
+[source,console,subs="attributes"]
+----
+$ kubectl create namespace kube-prometheus-stack
+$ kns kube-prometheus-stack
+----
+
+[source,console,subs="attributes"]
+----
+$ helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+--version 35.0.3 \
+--values src/config/kube-prometheus-stack/custom-values.yaml \
+--set 'alertmanager.ingress.hosts={alertmanager.{tenant-client1}}' \
+--set 'grafana.ingress.hosts={grafana.{tenant-client1}}' \
+--set 'prometheus.ingress.hosts={prometheus.{tenant-client1}}' \
+--set 'prometheus.prometheusSpec.externalLabels.cluster=kube-{tenant-client1}' \
+--set 'prometheus.prometheusSpec.externalLabels.tenant={tenant-client1}' 
+----
+
+.On peut vérifier que le déploiement Helm s’est bien déroulé.
+[source,console]
+----
+$ helm list
+----
+
+On liste les pods qui ont été créés à la suite du déploiement Helm.
+
+[source,console]
+----
+$ kubectl get pods -o wide
+NAME READY STATUS RESTARTS AGE
+alertmanager-kube-prometheus-stack-alertmanager-0 2/2 Running 0 4m3s
+kube-prometheus-stack-grafana-df8748bb9-gf2jx 3/3 Running 0 4m6s
+kube-prometheus-stack-kube-state-metrics-d699cc95f-tbg5b 1/1 Running 0 4m6s
+kube-prometheus-stack-operator-b4765c5fb-9qccj 1/1 Running 0 4m6s
+kube-prometheus-stack-prometheus-node-exporter-jfjnt 1/1 Running 0 4m6s
+prometheus-kube-prometheus-stack-prometheus-0 2/2 Running 0 4m3s
+----
+
+On note la présence de :
+
+* Grafana
+* kube-state-metrics
+* Prometheus Operator
+* Prometheus Node Exporter
+* une instance Prometheus
+
+Grafana et Prometheus Web UI sont accessibles en HTTP via les Ingress Kubernetes qu’on peut lister :
+
+[source,console]
+----
+$ kubectl get ingress -o wide
+NAME CLASS HOSTS ADDRESS PORTS AGE
+kube-prometheus-stack-alertmanager nginx alertmanager.foo 172.16.101.123 80 31s
+kube-prometheus-stack-grafana nginx grafana.foo 172.16.101.123 80 31s
+kube-prometheus-stack-prometheus nginx prometheus.foo 172.16.101.123 80 31s
+----
+
+On modifie notre fichier `/etc/hosts` pour pointer facilement les WebUI :
+
+.Ajout au fichier /etc/hosts :
+[source,console,subs="attributes"]
+----
+## {tenant-client1}
+{kube-client1-ip} prometheus.{tenant-client1}
+{kube-client1-ip} alertmanager.{tenant-client1}
+{kube-client1-ip} grafana.{tenant-client1}
+----
+
+.Stack supervision du cluster kube-{tenant-client1}
+[cols="1,3"]
+|===
+| Prometheus | http://prometheus.{tenant-client1}
+| AlertManager | http://alertmanager.{tenant-client1}
+| Grafana | http://grafana.{tenant-client1}
+|===
+
+### Cluster `kube-{tenant-hoster}-mutu`
+
+On effectue la même manipulation sur le cluster `kube-{tenant-hoster}-mutu` en adaptant la configuration :
+
+NOTE: Dans une stratégie de haute disponibilité, on pourra demander 2 instances Prometheus au sein d’un même cluster.
+
+[source,console,subs="attributes"]
+----
+$ kctx kube-{tenant-hoster}-mutu
+$ kubectl create namespace kube-prometheus-stack
+$ kns kube-prometheus-stack
+$ helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+--version 35.0.3 \
+--values src/config/kube-prometheus-stack/custom-values.yaml \
+--set 'alertmanager.ingress.hosts={alertmanager.{tenant-hoster}}' \
+--set 'grafana.ingress.hosts={grafana.{tenant-hoster}}' \
+--set 'prometheus.ingress.hosts={prometheus.{tenant-hoster}}' \
+--set 'prometheus.prometheusSpec.replicas=2' \
+--set 'prometheus.prometheusSpec.externalLabels.cluster=kube-{tenant-hoster}-mutu' \
+--set 'prometheus.prometheusSpec.externalLabels.tenant={tenant-hoster}'
+----
+
+[source,console]
+----
+$ helm list
+----
+
+[source,console]
+----
+$ kubectl get pods -o wide
+$ kubectl get ingress -o wide
+----
+
+On modifie notre fichier `/etc/hosts` pour pointer facilement les WebUI :
+
+.Ajout au fichier /etc/hosts :
+[source,console,subs="attributes"]
+----
+## {tenant-hoster}
+{kube-hoster-ip} prometheus.{tenant-hoster}
+{kube-hoster-ip} alertmanager.{tenant-hoster}
+{kube-hoster-ip} grafana.{tenant-hoster}
+----
+
+.Stack supervision du cluster kube-{tenant-hoster}-mutu
+[cols="1,3"]
+|===
+| Prometheus | http://prometheus.{tenant-hoster}
+| AlertManager | http://alertmanager.{tenant-hoster}
+| Grafana | http://grafana.{tenant-hoster}
+|===
+
+## Exploration
+
+https://prometheus.io/docs/prometheus/latest/querying/basics/
+
+### Découverte de Prometheus UI
+
+On pointe notre navigateur sur `http://prometheus.{tenant-client1}/`.
+
+#### Status et Configuration
+
+On parcourt les informations disponibles dans le menu `Status` pour afficher :
+
+* l’état du stockage : TSDB Status
+* la configuration actuelle du serveur
+* les cibles : Targets
+* les Service Discovery
+
+#### Graph
+
+On peut chercher à récupérer la métrique `up` qui va nous permettre d’afficher les /jobs/ et /instances/ de l’instance Prometheus.
+
+`up` fait partie d’en ensemble de métriques et labels générés automatiquement par Prometheus :
+* https://prometheus.io/docs/concepts/jobs_instances/#automatically-generated-labels-and-time-series
+
+On voit qu’il n’existe pour le moment que les jobs et instances résultant de l’installation par défault du chart Helm `kube-prometheus-stack`.
+Il n’existe pas encore de job lié au moissonnage des métriques exposées par notre application `demo-jres` existant sous le nom d’application `pif` sur ce cluster.
+
+### Ajout du monitoring des applications demo-jres
+
+L’application `demo-jres` expose des métriques sur un port dédié HTTP TCP/9090.
+
+Nous allons tout d’abord vérifier que l’application expose bien ses métriques :
+
+[source,console,subs="attributes"]
+----
+$ kctx kube-{tenant-client1}
+$ kns pif
+$ kubectl get service
+$ kubectl port-forward service/pif-demo-jres-mgmt 9090:9090
+Forwarding from 127.0.0.1:9090 -> 9090
+Forwarding from [::1]:9090 -> 9090
+----
+
+Depuis un autre terminal :
+
+[source,console,subs="attributes"]
+----
+$ curl http://127.0.0.1:9090
+[...]
+# HELP jres_hello_latency_seconds_created Durée de réponse au Hello JRES
+# TYPE jres_hello_latency_seconds_created gauge
+jres_hello_latency_seconds_created 1.6514239338881242e+09
+# HELP jres_hello_total Compteur du nombre d'affichage d'Hello JRES 
+# TYPE jres_hello_total counter
+jres_hello_total{route="/readiness"} 1119.0
+jres_hello_total{route="/liveness"} 1119.0
+jres_hello_total{route="/"} 2.0
+# HELP jres_hello_created Compteur du nombre d'affichage d'Hello JRES 
+# TYPE jres_hello_created gauge
+jres_hello_created{route="/readiness"} 1.6514239366589422e+09
+jres_hello_created{route="/liveness"} 1.6514239369945366e+09
+jres_hello_created{route="/"} 1.6514244067198792e+09
+# HELP jres_websites_response_time Jauge du temps de réponse des sites Web JRES en millisecondes
+# TYPE jres_websites_response_time gauge
+jres_websites_response_time{site="https://www.jres.org"} 152.68699999999998
+jres_websites_response_time{site="https://archives.jres.org"} 61.263
+jres_websites_response_time{site="https://conf-ng.jres.org"} 36.977999999999994
+----
+
+L’application expose correctement ses métriques.
+
+Nous allons à présent ajouter un `serviceMonitor`, une ressource Kubernetes propre à Prometheus Operator, qui va lui indiquer quel service pointer pour moissonner des métriques ainsi que les labels à prendre en compte.
+
+On crée le `serviceMonitor` dans le namespace de l'operator `kube-prometheus-stack` mais on peut le créer n’importe où sur le cluster.
+
+.ServiceMonitor pour le moissonnage des métriques des instances demo-jres sur le cluster
+[source,yaml]
+----
+include::example$/kube-prometheus-stack/manifests/demo-jres-service-monitor.yaml[]
+----
+
+.Création du serviceMonitor sur le cluster kube-{tenant-client1}
+[source,console,subs="attributes"]
+----
+$ kctx kube-{tenant-client1}
+$ kubectl --namespace kube-prometheus-stack apply -f src/config/kube-prometheus-stack/manifests/demo-jres-service-monitor.yaml
+----
+
+.Création du serviceMonitor sur le cluster kube-{tenant-hoster}-mutu
+[source,console,subs="attributes"]
+----
+$ kctx kube-{tenant-hoster}-mutu
+$ kubectl --namespace kube-prometheus-stack apply -f src/config/kube-prometheus-stack/manifests/demo-jres-service-monitor.yaml
+----
+
+Après quelques instants, on voit de nouvelles `targets` apparaître dans la WebUI Prometheus.
+
+On peut également vérifier que les métriques exposées par `demo-jres` commencent à être moissonnées.
+
+On note les labels associés aux différentes métriques.
+
+### Mise en œuvre d’un Service Discovery
+
+On souhaite également récupérer les métriques exposées par la vm `vm-{tenant-client1}`.
+
+Dans le chapitre sur la mise en place, nous avions fait en sorte d’avoir :
+
+[cols="2,2,2"]
+|===
+| Métriques | Exporter | URL
+| Métriques systèmes de la VM | Node-Exporter | http://{vm-client1-ip}:9100/metrics
+| Métriques Nginx | NGINX Prometheus Exporter | http://{vm-client1-ip}:9113/metrics
+|===
+
+Il nous faut maintenant configurer Prometheus pour moissonner ces cibles.
+On l’a vu, Prometheus propose différentes méthodes pour configurer les services à moissonner. Nous pourrions utiliser une configuration statique, mais nous allons tester la méthode `http_sd_config` qui consiste à rendre disponible en HTTP un fichier JSON qui liste les services à moissonner à Prometheus.
+
+TIP: Ici nous travaillons avec un fichier JSON statique pour le tutoriel, mais il pourrait être généré automatiquement à partir d’un inventaire ou d’une CMDB par exemple.
+
+.On complète avec un 2ᵉ service
+[source,json]
+----
+include::example$/kube-prometheus-stack/http_sd_config.json[]
+----
+
+Nous allons nous servir de l’instance Nginx sur la VM `vm-{tenant-client1}` pour héberger ce fichier JSON et le rendre ainsi disponible à l’instance Prometheus en exécution sur le cluster `kube-{tenant-client1}`.
+
+.Copie de fichiers
+[source,console,subs="attributes"]
+----
+$ scp -r src/config/nginx debian@vm-{tenant-client1}:/tmp/
+$ scp -r src/config/kube-prometheus-stack/http_sd_config.json debian@vm-{tenant-client1}:/tmp/
+----
+
+.Rechargement de la configuration
+[source,console,subs="attributes"]
+----
+$ ssh debian@vm-foo
+----
+
+[source,console,subs="attributes"]
+----
+$ sudo rm /etc/nginx/sites-enabled/* && sudo cp /tmp/nginx/sites/* /etc/nginx/sites-enabled/
+$ sudo cp /tmp/http_sd_config.json /var/www/sd.json
+$ sudo systemctl reload nginx
+----
+
+On teste que le fichier de Service Discovery est bien accessible :
+[source,console,subs="attributes"]
+----
+$ curl http://vm-{tenant-client1}:8080
+----
+
+### Configuration de Prometheus pour utilisation du Service Discovery mis en œuvre
+
+Notre instance Prometheus sur le cluster `kube-{tenant-client1}` ayant été déployé via le chart Helm `kube-prometheus-stack` et Prometheus Operator, nous allons nous appuyer sur la directive de configuration `additionalScrapeConfigs` pour ajouter notre Service Discovery :
+
+NOTE: On utilise l’adresse IP de la VM, car nous ne résolvons pas le nom vm-{tenant-client1} depuis le cluster kube-{tenant-client1}.
+
+.Ajout de notre Service Discovery HTTP en configuration additionnelle de Prometheus
+[source,yaml]
+----
+include::example$/kube-prometheus-stack/additionalScrapeConfigs-values.yaml[]
+----
+
+.On applique la configuration via Helm
+[source,console,subs="attributes"]
+----
+$ kns kube-prometheus-stack
+$ helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+--version 35.0.3 \
+--values src/config/kube-prometheus-stack/custom-values.yaml \
+--values src/config/kube-prometheus-stack/additionalScrapeConfigs-values.yaml \
+--set 'alertmanager.ingress.hosts={alertmanager.{tenant-client1}}' \
+--set 'grafana.ingress.hosts={grafana.{tenant-client1}}' \
+--set 'prometheus.ingress.hosts={prometheus.{tenant-client1}}' \
+--set 'prometheus.prometheusSpec.externalLabels.cluster=kube-{tenant-client1}' \
+--set 'prometheus.prometheusSpec.externalLabels.tenant={tenant-client1}' 
+----
+
+#### Vérification dans Prometheus UI
+
+Si on retourne dans Prometheus UI, on doit à présent lister notre application parmi les cibles.
+
+On demande la métrique `up` : apparaissent à présent les `jobs` de notre application `web` (le serveur Nginx), ainsi que les métriques exposées par le Node Exporter installé sur la VM vm-{tenant-client1}.
+
+#### Accès aux métriques depuis Grafana :
+
+On utilise pour l’instant l’instance Grafana qui a été déployée au sein du cluster via le chart Helm `kube-prometheus-stack`.
+
+On pointe notre navigateur sur : http://grafana.foo
+
+* login : admin
+* passwd : admin
+
+On note que l’instance Prometheus du cluster existe déjà en tant que datasource.
+
+On peut tester directement la requête des métriques dans le mode Explorer.
+
+##### Grafana Explore
+
+Si on demande la métrique `jres_websites_response_time`, on la voit s’afficher dans les différentes séries que Prometheus a pu moissonner.
+
+Le tableau dans la partie basse affiche en colonne les différents labels, que l’on peut utiliser utiliser pour filtrer et affiner notre requête.
+
+On peut fouiller les métriques pour lister toutes celles produites par :
+
+* les composants Kubernetes
+* l’instance `pif` de l’application `demo-jres`
+* le node exporter de {tenant-client1}
+* Nginx sur {tenant-client1}
+
+On note que l’on récupère uniquement des métriques qui semblent appartenir au tenant `{tenant-client1}`.
+
+## Thanos
+
+Thanos est une application distribuée pour la centralisation, le stockage longue durée et la recherche sur des grands ensembles de métriques.
+
+Thanos Architecture : https://thanos.io/tip/thanos/design.md/
+
+Il est conçu pour exposer la même API que Prometheus et s’intégrer parfaitement dans son écosystème.
+
+Un point fort incontournable de Thanos, il peut se satisfaire d’un stockage objet pour stocker les blocs de données et aussi les index.
+Il n’a pas d’autre dépendance externe, comme une base de données par exemple.
+
+.Architecture distribuée de Thanos
+image::thanos-architecture.png[Architecture distribuée de Thanos]
+
+Il s’articule autour de plusieurs composants qui sont tous exécutables depuis le même binaire sans dépendance externe.
+
+### Thanos Sidecar
+
+Il s’exécute au plus prêt d’une instance Prometheus pour avoir accès aux blocs de données qu’il produit afin de les externaliser sur un stockage objet cible.
+
+### Thanos Store Gateway
+
+Thanos Store Gateway ou Thanos Storage se branche à un stockage objet et expose l’API Store que peut consommer Thanos Query.
+
+### Thanos Query
+
+Thanos Query est là pour prendre les requêtes PromQL en entrée et les trassmettre auprès de backends pour lequel il est configuré.
+
+Il peut ainsi agréger en retour des données provenant de différents stockages :
+
+* Prometheus, via le composant Thanos Sidecar
+* Stockage Objet, via le composant Thanos Storage
+
+### Thanos Query Frontend
+
+Ce composant est un proxy que l'on peut mettre devant Thanos Query pour optimiser le traitement des requêtes qui sont faites au système.
+
+Il peut faire :
+
+* du Splitting: découper les requêtes pour réduire les risques d'OOM, paralléliser et réduire le temps de requête
+* du Retry sur erreur HTTP
+* du Caching, in-memory ou sur des systèmes externes : memcached, redis
+* Slow Query Log
+
+### Thanos Compactor
+
+Compactor permet de gérer la politique de stockage long terme, au travers de différentes techniques qu’il applique aux données sur le stockage objet :
+
+* Compaction, vertical compaction
+* Retention
+* Downsampling
+
+## Déploiement de Thanos SideCar sur les Prometheus
+
+### Focus sur la configuration de Thanos Sidecar
+
+.Configuration de l'external storage
+[source,yaml]
+----
+include::example$/kube-prometheus-stack/custom-values-thanos.yaml[lines=2558..2566]
+[...]
+----
+
+.Aperçu de la configuration du stockage objet
+[source,yaml]
+----
+include::example$/kube-prometheus-stack/objstore.yaml[]
+[...]
+----
+
+### Déploiement de Thanos Sidecar
+
+#### Cluster `kube-{tenant-client1}`
+
+.Création du secret objstore-config pour Thanos
+[source,console,subs="attributes"]
+----
+$ kctx kube-{tenant-client1}
+$ kubectl --namespace kube-prometheus-stack create secret generic objstore-config \
+--from-file=src/config/kube-prometheus-stack/objstore.yaml
+----
+
+.Déploiement de Prometheus avec Thanos Sidecar
+[source,console,subs="attributes"]
+----
+$ helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+--version 35.0.3 \
+--values src/config/kube-prometheus-stack/custom-values-thanos.yaml \
+--values src/config/kube-prometheus-stack/additionalScrapeConfigs-values.yaml \
+--set 'alertmanager.ingress.hosts={alertmanager.{tenant-client1}}' \
+--set 'grafana.ingress.hosts={grafana.{tenant-client1}}' \
+--set 'prometheus.ingress.hosts={prometheus.{tenant-client1}}' \
+--set 'prometheus.prometheusSpec.externalLabels.cluster=kube-{tenant-client1}' \
+--set 'prometheus.prometheusSpec.externalLabels.tenant={tenant-client1}' 
+----
+
+#### Cluster `kube-{tenant-hoster}-mutu`
+
+.Création du secret objstore-config pour Thanos
+[source,console,subs="attributes"]
+----
+$ kubie ctx kube-{tenant-hoster}-mutu
+$ kubectl --namespace kube-prometheus-stack create secret generic objstore-config \
+--from-file=src/config/kube-prometheus-stack/objstore.yaml
+----
+
+NOTE: Contrairement au cluster `kube-{tenant-client1}`, on ne positionne pas d'externalLabels `tenant` pour ne pas réécrire le label qui peut déjà éxister au niveau des ressources du cluster
+
+.Déploiement de Prometheus avec Thanos
+[source,console,subs="attributes"]
+---- 
+$ helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+--version 35.0.3 \
+--namespace kube-prometheus-stack \
+--values src/config/kube-prometheus-stack/custom-values-thanos.yaml \
+--set 'alertmanager.ingress.hosts={alertmanager.{tenant-hoster}}' \
+--set 'grafana.ingress.hosts={grafana.{tenant-hoster}}' \
+--set 'prometheus.ingress.hosts={prometheus.{tenant-hoster}}' \
+--set 'prometheus.prometheusSpec.replicas=2' \
+--set 'prometheus.prometheusSpec.externalLabels.cluster=kube-{tenant-hoster}-mutu'
+----
+
+## Thanos Query
+
+Depuis une session SSH :
+
+.Installation de Thanos
+[source,console,subs="attributes"]
+----
+$ wget -L https://github.com/thanos-io/thanos/releases/download/v0.25.2/thanos-0.25.2.linux-amd64.tar.gz
+$ tar -zxf thanos-0.25.2.linux-amd64.tar.gz
+$ sudo sudo cp thanos-0.25.2.linux-amd64/thanos /usr/local/bin/
+$ thanos --version 
+----
+
+On lance Thanos Query, configuré pour être en écoute en HTTP sur le port 9090 et qui pointe sur les instances Thanos Sidecar déployées à côté des Prometheus sur les 2 clusters Kubernetes.
+
+[source,console,subs="attributes"]
+----
+$ thanos query \
+--http-address=0.0.0.0:9070 \
+--query.replica-label=prometheus_replica \
+--store={kube-client1-ip}:30901 \
+--store={kube-hoster-ip}:30901
+----
+
+Dans les logs on doit voir que le Query se connecte aux 2 endpoints et détecte les externalLabels que l’on a définis plus tôt au niveau des Sidecar. 
+
+TIP: Service Discovery DNS
+On peut multiplier le nombre d'endpoint, mais on peut aussi pointer un nom DNS (DNS A ou DNS SRV) qui cible plusieurs cibles.
+
+.Exemple avec DNS SRV
+[source,console,subs="attributes"]
+----
+_thanosstores._tcp.{tenant-hoster} IN SRV 0 0 30901 thanosstore.kube-{tenant-client1}.{tenant-client1}.
+_thanosstores._tcp.{tenant-hoster} IN SRV 0 0 30901 thanosstore.kube-{tenant-hoster}-mutu.{tenant-hoster}.
+----
+
+.Exemple avec DNS SRV
+[source,console,subs="attributes"]
+----
+$ thanos query 
+--log.format=json \
+--http-address=0.0.0.0:9070 \
+--query.replica-label=prometheus_replica \
+--store=dnssrv+_thanosstores._tcp.{tenant-hoster}
+----
+
+Dans le cadre du tutoriel, n’ayant pas mis en œuvre une infrastructure DNS, nous resterons avec une configuration statique.
+
+### Test du Thanos Query
+
+Connexion à l’interface Web du Thanos Query : <http://vm-{tenant-hoster}:9070>
+
+L’interface est quasi identique à celle de Prometheus WebUI, mais elle va nous permettre d’avoir une vue consolidée de nos 2 Prometheus.
+
+Un nouvel onglet apparaît, celui des Stores.
+
+On y voit les 2 stores actuellement configurés qui correspondent aux Prometheus+Sidecar présents sur chacun des clusters.
+Nous pouvons donc interroger toutes ces métriques.
+
+Cependant, nous n’avons accès qu’aux métriques récentes qui sont encore accessibles localement par Prometheus.
+Les métriques stockées dans des blocs déjà externalisés sur le stockage objet ne sont pas encore accessibles.
+
+## Thanos Store
+
+L’instance Thanos Query précédemment lancée est configurée pour interroger les stores que sont les instances Prometheus+Thanos Sidecar. Or, celles-ci ont une rétention faible et ne sont pas forcément résilientes. On a vu précédemment que Thanos Sidecar va périodiquement pousser sur S3 les blocs de stockage de métriques.
+
+Nous allons donc lancer une instance Thanos Store configurée pour accéder aux données poussées dans S3 par les Thanos SideCar : 
+
+.On crée le fichier objstore.yaml sur la VM vm-{tenant-hoster} :
+[source,yaml]
+----
+include::example$/kube-prometheus-stack/objstore.yaml[]
+----
+
+[source,console,subs="attributes"]
+----
+$ thanos store \
+--http-address="0.0.0.0:11902" \
+--grpc-address="127.0.0.1:11901" \
+--data-dir="thanos-store/store" \
+--objstore.config-file="objstore.yaml"
+----
+
+On relance Thanos Query avec ce store comme endpoint supplémentaire : 
+
+[source,console,subs="attributes"]
+----
+$ thanos query \
+--http-address="0.0.0.0:9070" \
+--query.replica-label=prometheus_replica \
+--store={kube-client1-ip}:30901 \
+--store={kube-hoster-ip}:30901 \
+--store="127.0.0.1:11901"
+----
+
+On vérifie via le Thanos UI, les `stores` et les `targets`.
+
+Dans la partie Graph, en passant une requête sur une métrique et via l'option `Enable Store Filtering`, on peut identifier de quel Store proviennent les métriques affichées .
+
+[source,console,subs="attributes"]
+----
+$ thanos tools bucket web \
+--objstore.config-file=objstore.yaml
+----
+
+## Optimisations et mise à l’échelle
+
+Thanos est conçu pour supporter une mise à l’échelle importante. Tous les composants cités plus tôt peuvent être multipliés pour absorber plus de requêtes sur plus de données provenant de plus de sources.
+
+### Thanos Query Frontend
+
+Thanos permet également d’ajouter des composants qui pourraient optimiser les performances et distribuer la charge induite par les requêtes passées au système.
+Le traitement des requêtes peut par exemple passer par le Query Frontend pour bénéficier de mécanismes :
+
+* Splitting : par défault, sous-requêtes sur des tranches de 24h
+* Caching : inMemory, Memcached, Redis
+
+Il se comporte comme un proxy que l’on va positionner devant le Thanos Query déjà démarré :
+
+[source,console,subs="attributes"]
+----
+thanos query-frontend \
+--http-address="0.0.0.0:9080" \
+--query-frontend.downstream-url="http://127.0.0.1:9070"
+----
+
+On peut pointer notre navigateur à l’adresse http://vm-{tenant-hoster}:9080 pour vérification.
+
+### Utilisation dans Grafana
+
+Nous allons utiliser cette fois une autre instance de Grafana, que nous allons démarrer directement depuis notre poste de travail.
+
+.On lance un conteneur Docker à partir de l’image officielle de Grafana
+[source,console,subs="attributes"]
+----
+$ docker run --name=grafana \
+--env GF_DASHBOARDS_MIN_REFRESH_INTERVAL=1s \
+--network host \
+--detach \
+grafana/grafana 
+----
+
+On utilise `--network host` pour profiter de nos modifications dans `/etc/hosts`.
+
+On pointe notre navigateur à l’adresse : http://localhost:3000
+
+* login : admin
+* passwd : admin
+
+.Ajout de Thanos en datasource
+
+Dans la partie Configuration, nous allons ajouter une nouvelle datasource :
+
+* Comme Thanos est 100 % compatible avec les API Prometheus, on choisit le type `Prometheus`
+* On lui donne le nom de `Thanos - Query Frontend`
+* URL : http://vm-{tenant-hoster}:9080
+
+On valide avec le bouton `Save & test` en laissant les autres options aux valeurs par défault, et on peut accéder directement au menu Explorer depuis le bouton.
+
+.Explorer
+
+On reprend une recherche sur notre métrique custom `jres_websites_response_time`.
+Cette fois on doit afficher la métrique de toutes les instances de l’application `demo-jres` et pour tous les tenants clients existants dans notre infrastructure : `{tenant-client1}` et `{tenant-client2}`.
+
+Si on choisit une autre métrique, par exemple `node_cpu_seconds_total`, on verra aussi apparaître des séries appartenant au tenant `hoster`.
+
+En attendant plus de 2 h, la durée de rétention minimale sur Prometheus, les métriques plus anciennes proviendront du Thanos Storage.
+
+### Multi-tenant
+
+On a vu que Thanos stockait toutes les métriques provenant d’applications et d’infrastructures appartenant à différents tenants : `{tenant-client1}`, `{tenant-client2`, `{tenant-hoster}`. Néanmoins, pour le moment, toutes les métriques sont stockées dans le même stockage et les requêtes passées au Thanos Query (ou Query Frontend) permettent de récupérer les métriques de n’importe quel tenant.
+
+Afin de filtrer les accès et de n’autoriser l’accès à un tenant qu’à ses propres métriques, nous allons ajouter un proxy PromQL sur le chemin de la requête. Il sera configuré pour refuser toute requête qui ne précise pas de valeur pour le label tenant configuré.
+Grafana, par sa gestion des droits et via les mécanismes d’organisation et d’utilisateurs, et en distinguant une datasource par tenant, peut nous permettre de correctement gérer les autorisations et ainsi limiter l’accès aux métriques du même tenant.
+
+Pour obliger l’utilisation du label tenant, on peut utiliser `prom-label-proxy` : https://github.com/prometheus-community/prom-label-proxy
+
+.On installe prom-label-proxy
+[source,console,subs="attributes"]
+----
+$ curl -O -L "https://github.com/prometheus-community/prom-label-proxy/releases/download/v0.4.0/prom-label-proxy-0.4.0.linux-amd64.tar.gz"
+$ tar zxvf prom-label-proxy-0.4.0.linux-amd64.tar.gz
+$ sudo cp prom-label-proxy-0.4.0.linux-amd64/prom-label-proxy /usr/local/bin/
+$ rm -fr prom-label-proxy-0.4.0.linux-amd64
+$ prom-label-proxy --help
+----
+
+[source,console,subs="attributes"]
+----
+$ prom-label-proxy -label tenant \
+-insecure-listen-address 0.0.0.0:9090 \
+-upstream http://127.0.0.1:9080
+----
+
+Si on retourne dans Grafana, on ajoute une nouvelle datasource :
+
+* Type `Prometheus`
+* On lui donne le nom de `Thanos - via Prom-label-proxy`
+* URL : http://vm-{tenant-hoster}:9090
+
+En voulant sauvegarder cette datasource, on obtient un message d’erreur : Prom-label-proxy refuse la requête de Grafana et demande à ce que le label `tenant` soit positionné dans toutes les requêtes qui lui sont faites.
+
+Dans la page de configuration de la ressource, dans la partie `Misc`, on va forcer la valeur du label `tenant` 
+
+Dans `Custom query parameters`, on positionne : `tenant={tenant-client1}`.
+
+Et on renomme la datasource : `Thanos - Tenant Foo`
+
+On fait la même chose pour le tenant `{tenant-client2}`
+
+* Type `Prometheus`
+* On lui donne le nom de `Thanos - Tenant Bar`
+* URL : http://vm-{tenant-hoster}:9090
+* Custom query parameters` : `tenant={tenant-client1}`
+
+Dans le mode explore, sélectionner la datasource `Thanos - Tenant Foo`, lancer une requête sur la métrique `jres_hello_total` par exemple.
+Seules les métriques de `{tenant-client1}` doivent alors s’afficher.
+
+Tester la même chose sur la datasource `Thanos - Tenant Bar`.
+
+Nous pourrions finaliser en configurant Grafana pour authentifier les utilisateurs des organisations `{tenant-client1}` et `{tenant-client2}` et les restreindre à leur datasource respective.
+
+## Extra
+
+### Thanos Compactor
+
+Thanos offre plusieurs mécanismes pour la gestion du cycle de vie des données dans le stockage objet :
+
+* Compaction/Déduplication : si un métrique existe sous plusieurs réplicas (Prometheus en haute dispo en amont par exemple), il n’est pas nécessaire de conserver les mesures en double.
+* Rétention : On peut ici gérer la durée de retention des métriques
+* Downsampling : Cette fonctionnalité permet de baisser la fréquence d’échantillonnage des métriques stockées afin de gagner en volumétrie de stockage.
+* Nettoyage des uploads partiels : Dans le cas où Thanos Sidecar ne parvient pas à externaliser correctement les blocs, ceux-ci seront supprimés du stockage objet.
+
+On peut observer la volumétrie initiale du bucket `metrics` avant une première compaction dans la console Minio.
+
+On lance Thanos Compactor :
+
+[source,console]
+----
+$ thanos compact \
+--http-address="0.0.0.0:19191" \ 
+--data-dir="thanos-store/store" \
+--objstore.config-file="objstore.yaml"
+----
+
+On peut retourner dans le Bucket Web pour afficher l'état des blocs après passage du compactor. On voit que des blocks ont été compressés.
+
+Si on affiche le volume de données du bucket `metrics` dans la console Minio, on note une diminution suite au passage du Compactor.

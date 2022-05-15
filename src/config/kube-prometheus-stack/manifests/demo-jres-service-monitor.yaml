@@ -1,0 +1,17 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: "demo-jres"
+spec:
+  endpoints:
+  - path: /metrics
+  - port: "9090"
+  namespaceSelector:
+    any: true
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: "demo-jres"
+      mgmt: "true"
+  targetLabels:
+    - app
+    - tenant

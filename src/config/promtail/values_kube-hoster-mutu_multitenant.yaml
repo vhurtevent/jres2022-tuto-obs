@@ -1,0 +1,13 @@
+config:
+  snippets:
+    pipelineStages:
+    - cri: {}
+    - tenant:
+        source: "tenant"
+    extraClientConfigs: |
+      external_labels:
+        dc: "dc-2"
+        cluster: "kube-hoster"
+    extraRelabelConfigs:
+      - action: "labelmap"
+        regex: "__meta_kubernetes_pod_label_(.+)"

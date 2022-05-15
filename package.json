@@ -1,0 +1,9 @@
+{
+    "private": true,
+    "dependencies": {
+      "@antora/cli": "~2.3",
+      "@antora/site-generator-default": "~2.3",
+      "@antora/site-generator-with-pdf-exporter": "git+https://gitlab.com/opendevise/oss/antora-site-generator-with-pdf-exporter#v2.3.0-alpha.2"
+    }
+  }
+      

@@ -1,0 +1,10 @@
+config:
+  snippets:
+    extraClientConfigs: |
+      external_labels:
+        dc: "dc-1"
+        cluster: "kube-foo"
+        tenant: "foo"
+    extraRelabelConfigs:
+    - action: "labelmap"
+      regex: "__meta_kubernetes_pod_label_(.+)"

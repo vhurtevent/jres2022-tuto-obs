@@ -1,0 +1,7 @@
+* xref:introduction.adoc[Introduction]
+* xref:prerequis.adoc[Pré-requis]
+* xref:mise-en-place.adoc[Mise en place]
+* xref:stockage-objet.adoc[Stockage Objet (S3)]
+* xref:metriques.adoc[Centralisation et consultation des métriques avec Thanos]
+* xref:journaux.adoc[Centralisation et consultation des journaux avec Loki]
+* xref:bibliographie.adoc[Bilbiographie & Liens]

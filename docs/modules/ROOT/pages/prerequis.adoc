@@ -1,0 +1,70 @@
+= Pré-requis
+
+Ce tutoriel aborde la centralisation de métriques et de journaux au sein d’une infrastructure multi-tenant. Celle-ci, décrite et mise en œuvre pour ce tutoriel, est constituée de machines virtuelles, de clusters Kubernetes et de différentes instances d’une application.
+
+Il n’est pas nécessaire de maîtriser toutes les technologies d’infrastructures abordées, toutefois, les concepts d’infrastructure as code et de conteneurisation sont considérées comme connus.
+
+== Moyens matériels
+
+=== Plateforme de virtualisation
+
+Plusieurs machines virtuelles vont être nécessaires pour jouer ce tutoriel.
+Si votre poste de travail est suffisamment dimensionné, vous pourriez y lancer les différentes VMs et applications.
+
+Pour plus de confort, un code Terraform simpliste fourni permet le déploiement des VMs sur une plateforme de type OpenStack. Il est possible de l’adapter pour cibler une plateforme d’un autre type : VMWare, Proxmox, poste local.
+
+Terraform n'est absolument pas nécessaire, et les différents composants pourraient être déployés avec la méthode et les outils de votre choix.
+
+NOTE: Si vous souhaitez contribuer au contenu de ce tutoriel et le faire vivre au délà des JRES 2022, n’hésitez pas à contribuer sur le dépôt Github : https://github.com/vhurtevent/jres2022-tuto-obs
+
+== Moyens logiciels
+
+Pour suivre ce tutoriel, nous aurons besoin d’un certain nombre d’outils.
+Ils sont mis à disposition par l’intermédiaire d’une image de conteneur préparée spécialement pour ce tutoriel.
+
+Les sources de cette image sont accessibles au sein du dépôt Git du projet dans le dossier `docker`.
+
+L’image est directement récupérable depuis le DockerHub par son nom `vhurtevent/jres2022-tuto-obs` : https://hub.docker.com/r/vhurtevent/jres2022-tuto-obs
+
+Sur le poste de travail, nous aurons uniquement besoin d’un moteur de conteneurisation capable de démarrer un conteneur à partir de l’image Docker préparée pour ce tutoriel.
+
+NOTE: Nous utiliserons Docker, mais vous pouvez utiliser le moteur compatible de votre choix.
+
+== DNS / Hosts files
+
+Pour mieux suivre le tutoriel sans avoir à mettre en place une solution DNS adhoc, il est préférable de pouvoir manipuler la résolution DNS de son poste de travail. Notamment en ayant les droits pour l’édition du fichier `/etc/hosts`. 
+
+[cols="1,1,2"]
+|===
+|Nom |Version |Description
+
+|Ansible |v2.9.6 |Outil pour l'automatisation de tâches d'administration
+
+|AWS CLI |v2.4.5 |Client en ligne de commande pour l'administration de ressources AWS
+
+|Curl |v7.68.0 |Client HTTP en ligne de commande
+
+|Git |v2.25.1 |Logiciel de gestion de version de code
+
+|Helm |v3.7.2 |Client en ligne de commande pour la construction et le déploiement d'applications sur un cluster Kubernetes
+
+|LogCLI |v2.4.2 | Client Loki en ligne de commande
+
+|kubectl |v1.23.5 |Client en ligne de commande pour l'administration d'un cluster Kubernetes
+
+|kubie |v0.16.0 |Outil pour la gestion de contexte Kubernetes
+
+|OpenStack CLI |v5.7.0|Client en ligne de commande pour l'administration de ressources OpenStack
+
+|OpenSSH |v8.2 | Client SSH
+
+|s3cmd |v2.0.2 |Client S3 en ligne de commande
+
+|Terraform |v1.1.9 |Outil de gestion d'infrastructures
+
+|Wget |v1.10.3 |Client HTTP en ligne de commande
+
+|===
+
+NOTE: Le tutoriel a été élaboré et testé avec les versions listées.
+

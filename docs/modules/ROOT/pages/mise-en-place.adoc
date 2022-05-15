@@ -1,0 +1,617 @@
+
+= Mise en place
+
+L’objectif de ce tutoriel est la mise en œuvre d’une plateforme de centralisation de métriques et de journaux (logs). Ceux-ci seront stockés dans un stockage objet longue durée et indexés afin de les interroger par requête et de les visualiser dans des tableaux de bord dynamiques.
+
+Nous aurons besoin d’éléments d’infrastructures qui vont produire ces métriques et journaux. Ils n’appartiendront pas tous à la même organisation afin de démontrer la caractéristique multi-tenant de la plate-forme. Vous verrez comment les données produites à la source seront étiquetées, ce qui permettra de filtrer l’accès aux métriques et aux journaux.
+
+Nous identifions 3 tenants :
+
+[cols="1,1,1"]
+|===
+|Tenant |Rôle |Commentaires 
+
+|`{tenant-hoster}`| Hébergeur| Il fournit des infrastructures et des services associés aux organisations qu’il héberge. Il travaille à la refonte de son service de supervision
+
+|`{tenant-client1}` |Organisation cliente de l’hébergeur| Elle déploie des infrastructures chez `{tenant-hoster}` et y héberge des applications. Elle souhaite bénéficier du service de supervision proposé par l’hébergeur.
+
+|`{tenant-client2}` |Organisation cliente de l’hébergeur| Elle déploie des applications dans l’offre Plateform as a Service (Kubernetes) chez `{tenant-hoster}`. Elle souhaite bénéficier du service de supervision proposé par l’hébergeur.
+
+|===
+
+== Infrastructures nécessaires
+
+Pour les besoins du tutoriel, nous allons déployer les infrastructures suivantes :
+
+[cols="2,1,2,3"]
+|===
+|Infrastructure |Tenant |Nom |Commentaires 
+
+|Un réseau IPv4 |{tenant-hoster} |net-{tenant-hoster} |Réseau dans lequel sera instanciée l’infrastructure du tenant `{tenant-hoster}`
+
+|Un cluster Kubernetes |{tenant-hoster} |kube-{tenant-hoster}-mutu |Cluster Kubernetes mutualisé, appartenant au tenant `{tenant-hoster}`, support de l’offre PaaS, qui peut héberger des applications pour le compte des tenants `{tenant-client1}`, `{tenant-client2}` et `{tenant-hoster}`.
+
+|Une machine virtuelle |{tenant-hoster} |vm-{tenant-hoster} | VM appartenant au tenant `{tenant-hoster}` qui nous servira à déployer les composants de la plateforme.
+
+|Un réseau IPv4 |{tenant-client1} |net-{tenant-client1} |Réseau dans lequel sera instanciée l’infrastructure appartenant au tenant `{tenant-client1}`
+
+|Une machine virtuelle |{tenant-client1} |vm-{tenant-client1} |VM appartenant au tenant `{tenant-client1}` qui exécutera un serveur web Nginx
+
+|Un cluster Kubernetes |{tenant-client1} |kube-{tenant-client1} |Cluster Kubernetes appartenant au tenant `{tenant-client1}`
+
+|===
+
+IMPORTANT: L’organisation `{tenant-client2}` ne possède pas d’infrastructure, elle est simple utilisatrice du service d’hébergement d’application (PaaS Kubernetes) de `{tenant-hoster}`.
+
+NOTE: Nous utilisons Terraform pour déployer l’infrastructure listée au tableau <<_infrastructures_nécessaires>>.
+L’intégralité du code de déploiement Terraform est accessible au sein du dépôt Git du projet dans le dossier `src/infrastuctures`.
+
+## Schémas d’infrastructures
+
+.Les infrastructures déployées appartiennent aux 2 tenants : `{tenant-client1}` et `{tenant-hoster}`
+image::infrastructures.png[Les infrastructures déployées appartiennent à 2 tenants : `{tenant-client1}` et `{tenant-hoster}`]
+
+## Déploiement des infrastructure
+
+### Démarrage du poste de travail administrateur
+
+Pour réaliser ce tutoriel, toutes les commandes sont exécutées depuis un conteneur démarré à partir de l’image spécialement préparée pour ce tutoriel.
+
+TIP: Le dossier de travail est `workspace` tout au long du tutoriel
+
+.Démarrage du poste de travail administrateur :
+[source,console,subs="attributes"]
+----
+$ mkdir {workspace-dir}
+$ cd {workspace-dir}
+$ export WORKSPACE_HOME=$(pwd)
+$ docker run -ti -v $WORKSPACE_HOME:/workspace {tuto-docker-image}
+Unable to find image 'vhurtevent/jres2022-tuto-obs:latest' locally
+latest: Pulling from vhurtevent/jres2022-tuto-obs
+d5fd17ec1767: Already exists 
+bb69326fe1de: Already exists 
+...
+...
+Digest: sha256:9bfd51c41f134f0b354f28fa9bafbbcb547ff16dcc076336eada74970dd8a861
+Status: Downloaded newer image for vhurtevent/jres2022-tuto-obs:latest
+----
+
+.Récupération du contenu du projet Git du tutoriel :
+[source,console,subs="attributes"]
+----
+$ git clone {tuto-github-repo-url}
+$ cd {tuto-github-repo-name}
+----
+
+### Déploiement de l’infrastructure du tenant `{tenant-client1}`
+
+.Déploiement de l'infrastructure avec Terraform
+[source,console,subs="attributes"]
+----
+$ cd cd src/infrastructures/{tenant-client1}
+$ ls -l
+total 16
+drwxrwxr-x 3 1000 1000 4096 May 1 14:37 00_network
+drwxrwxr-x 2 1000 1000 4096 May 1 14:22 10_key
+drwxrwxr-x 2 1000 1000 4096 May 1 14:17 20_vm
+drwxrwxr-x 3 1000 1000 4096 May 1 14:23 30_k8s-cluster
+----
+
+Le projet `{tenant-client1}` est organisé en 4 sous-projets que l’on va instancier à la suite.
+
+#### Création du réseau `{tenant-client1}`
+
+C’est sur ce réseau que toutes les machines virtuelles du tenant `{tenant-client1}` seront créées.
+
+.Initialisation du projet, Terraform va télécharger les providers nécessaires
+[source,console,subs="attributes"]
+----
+$ cd 00_network
+$ terraform init
+$ terraform apply
+----
+
+.Déploiement du réseau
+[source,console,subs="attributes"]
+----
+[...]
+Terraform will perform the following actions:
+
+# openstack_networking_network_v2.net_foo will be created
++ resource "openstack_networking_network_v2" "net_foo" {
+[...]
+}
+[...]
+Plan: 3 to add, 0 to change, 0 to destroy.
+
+Do you want to perform these actions?
+Terraform will perform the actions described above.
+Only 'yes' will be accepted to approve.
+
+Enter a value: yes
+[...]
+Apply complete! Resources: 3 added, 0 changed, 0 destroyed.
+
+----
+
+#### Création de la paire de clés pour accès SSH aux VM du tenant `{tenant-client1}`
+
+Nous allons générer une paire localement et pousser la clé publique dans OpenStack.
+
+.La paire de clé pour les VM
+[source,console,subs="attributes"]
+----
+$ ssh-keygen -t ecdsa
+Generating public/private ecdsa key pair.
+Enter file in which to save the key (/root/.ssh/id_ecdsa): 
+Created directory '/root/.ssh'.
+Enter passphrase (empty for no passphrase): 
+Enter same passphrase again: 
+Your identification has been saved in /root/.ssh/id_ecdsa
+Your public key has been saved in /root/.ssh/id_ecdsa.pub
+The key fingerprint is:
+SHA256:b8mZDOidvAF2ON0iVN+KOp/4lhPeg+F9iqrG/ib1LOU root@laptop
+The key's randomart image is:
++---[ECDSA 256]---+
+|        .        |
+|       . . .     |
+|      .   . .    |
+|     . + o .     |
+|      B S o      |
+|     o.O+B +     |
+|   . .+B=BO      |
+|    + o+E*+ .    |
+|   oo=+=*..+     |
++----[SHA256]-----+
+----
+
+.On positionne la clé publique en variable d'environnment pour Terraform
+[source,console,subs="attributes"]
+----
+export TF_VAR_ssh_pub_key=$(cat /root/.ssh/id_ecdsa.pub)
+----
+
+.La paire de clés pour les VM
+[source,console,subs="attributes"]
+----
+$ cd ../10_key
+$ terraform init
+[...]
+$ terraform apply
+----
+
+#### Machine vituelle `vm-{tenant-client1}`
+
+La VM est une Debian 11 minimale.
+
+WARNING: Le code Terraform déploie volontairement de façon simpliste la VM et ses règles de sécurité pour permettre le bon déroulement du tutoriel.
+Ne pas reproduire dans un contexte de production.
+
+[source,console,subs="attributes"]
+----
+$ cd ../20_vm
+$ terraform init
+[...]
+$ terraform apply
+----
+
+.Sous OpenStack, on peut vérifier la bonne instanciation de la VM
+[source,console]
+----
+$ openstack server list
+----
+
+#### Cluster Kubernetes kube-{tenant-client1}
+
+Pour les besoins du tutoriel, le cluster kube-{tenant-client1} dispose des caractéristiques suivantes :
+
+[cols="1,1"]
+|===
+|Nombre de nœuds (ControlePlane & Worker) |1
+|Système d’exploitation |Fedora CoreOS 35
+|Distribution Kubernetes |Kubernetes 1.21 via RKE 1.3
+|Dimensionnement des noeuds |m4.medium (4cpu/4Go)
+|Réseau |Canal (Calico+Flannel)
+|Ingress Controller |ingress-nginx via Helm Chart 4.0.16
+|===
+
+NOTE: Pour simplifier l’infrastructure, nous n’utiliserons pas de volume persistant. En situation réelle de production, il sera nécessaire d’y recourir pour certaines fonctionnalités (compaction notamment).
+
+[source,console,subs="attributes"]
+----
+$ cd ../30_k8s-cluster
+$ terraform init
+[...]
+$ terraform apply
+----
+
+Une fois déployé, nous pouvons récupérer les informations de connexion via la sortie (output) Terraform `kubeconfig`.
+
+[source,console,subs="attributes"]
+----
+$ terraform output -raw kubeconfig > ~/.kube/kube-{tenant-client1}.yaml
+----
+
+.On lance `kubie ctx` ou son alias `kctx` pour se positionner dans le contexte du cluster Kubernetes kube-{tenant-client1}
+[source,console,subs="attributes"]
+----
+$ kubie ctx
+$ kubectl get node -o wide 
+----
+
+### Déploiement de l’infrastructure du tenant `{tenant-hoster}`
+
+La structure du projet `{tenant-hoster}` est très semblable à `{tenant-client1}`.
+Les actions peuvent être réalisées de la même façon depuis le dossier `src/infractructure/hoster`.
+
+#### Création du réseau `{tenant-hoster}`
+
+C’est sur réseau que toutes les machines virtuelles du tenant `{tenant-hoster}` seront créées.
+
+.Initialisation du projet, Terraform va télécharger les providers nécessaires
+[source,console,subs="attributes"]
+----
+$ cd ../../hoster/00_network
+$ terraform init
+$ terraform apply
+----
+
+.Déploiement du réseau
+[source,console,subs="attributes"]
+----
+[...]
+Terraform will perform the following actions:
+
+# openstack_networking_network_v2.net_{tenant-hoster} will be created
++ resource "openstack_networking_network_v2" "net_{tenant-hoster}" {
+[...]
+}
+[...]
+Plan: 3 to add, 0 to change, 0 to destroy.
+
+Do you want to perform these actions?
+Terraform will perform the actions described above.
+Only 'yes' will be accepted to approve.
+
+Enter a value: yes
+[...]
+Apply complete! Resources: 3 added, 0 changed, 0 destroyed.
+
+----
+
+#### Création de la paire de clés pour accès SSH aux VM du tenant`{tenant-hoster}`
+
+Nous allons réutiliser la clé générée précédemment pour le tenant `{tenant-hoster}`.
+
+.La paire de clés pour les VM
+[source,console,subs="attributes"]
+----
+$ cd ../10_key
+$ terraform init
+[...]
+$ terraform apply
+----
+
+#### Machine vituelle `vm-{tenant-hoster}`
+
+La VM est une Debian 11 avec Docker préinstallé. Elle va nous permettre d’exécuter les composants suivants :
+
+[cols="1,1"]
+|===
+|Minio |Stockage objet compatible S3
+|Thanos |Centralisation des métriques
+|Loki |Centralisation des journaux
+|===
+
+WARNING: Le code Terraform déploie volontairement de façon simpliste la VM et ses règles de sécurité pour permettre le bon déroulement du tutoriel.
+Ne pas reproduire dans un contexte de production.
+
+[source,console,subs="attributes"]
+----
+$ cd ../20_vm
+$ terraform init
+[...]
+$ terraform apply
+----
+
+.Sous OpenStack, on peut vérifier la bonne instanciation de la VM
+[source,console]
+----
+$ openstack server list
+----
+
+#### Cluster Kubernetes kube-{tenant-hoster}
+
+Pour les besoins du tutoriel, le cluster kube-{tenant-hoster} dispose des caractéristiques suivantes : 
+
+[cols="1,1"]
+|===
+|Nombre de noeuds (ControlePlane & Worker) |1
+|Système d'exploitation |Fedora CoreOS 35
+|Distribution Kubernetes |Kubernetes 1.21 via RKE 1.3
+|Dimensionnement des noeuds |m4.medium (4cpu/4Go)
+|Réseau |Canal (Calico+Flannel)
+|Ingress Controller |ingress-nginx via Helm Chart 4.0.16
+|===
+
+[source,console,subs="attributes"]
+----
+$ cd ../30_k8s-cluster
+$ terraform init
+[...]
+$ terraform apply
+----
+
+Une fois déployé, nous pouvons récupérer les informations de connexion via la sortie (output) Terraform `kubeconfig`.
+
+[source,console,subs="attributes"]
+----
+$ terraform output -raw kubeconfig > ~/.kube/kube-{tenant-hoster}-mutu.yaml
+----
+
+.On lance `kubie ctx` ou son alias `kctx` pour se positionner dans le contexte du cluster Kubernetes kube-{tenant-hoster}
+[source,console,subs="attributes"]
+----
+$ kctx kube-{tenant-hoster}
+$ kubectl get node -o wide 
+----
+
+## Configuration `/etc/hosts`
+
+À l’issue du déploiement de ces 2 projets, on peut déjà positionner quelques noms dans notre fichier /etc/hosts.
+
+.On récupère les IP des 4 VMs instanciées
+[source,console]
+----
+$ openstack server list
+----
+
+On identifie l’IP des VMs dans la sortie OpenStack et on ajoute les entrées correspondantes dans `/etc/hosts`
+
+[source,console,subs="attributes"]
+----
+{vm-client1-ip} vm-{tenant-client1} vm-{tenant-client1}.{tenant-client1}
+{kube-client1-ip} kube-{tenant-client1} kube-{tenant-client1}.{tenant-client1}
+{vm-hoster-ip} vm-{tenant-hoster} vm-{tenant-hoster}.{tenant-hoster}
+{kube-hoster-ip} kube-{tenant-hoster}-mutu kube-{tenant-hoster}-mutu.{tenant-hoster}
+----
+
+## Déploiements des applications
+
+### Pour le compte de l’organisation `{tenant-client1}`
+
+#### Sur la machine virtuelle `vm-{tenant-client1}`
+
+.On vérifie que vm-{tenant-client1} est disponible et joignable :
+[source,console,subs="attributes"]
+----
+$ ssh debian@vm-{tenant-client1} uptime
+----
+
+.On installe Nginx, Prometheus Nginx Exporter, Prometheus Node-Exporter :
+[source,console,subs="attributes"]
+----
+$ ssh debian@vm-{tenant-client1}
+Linux vm-tenant-a 5.10.0-8-amd64 #1 SMP Debian 5.10.46-4 (2021-08-03) x86_64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+----
+
+[source,console,subs="attributes"]
+----
+debian@vm-foo:~$ sudo apt update
+debian@vm-foo:~$ sudo apt install nginx prometheus-nginx-exporter prometheus-node-exporter
+debian@vm-foo:~$ echo "
+server { 
+listen localhost:81;
+location /metrics {
+stub_status on;
+}
+}" | sudo tee /etc/nginx/sites-enabled/metrics
+debian@vm-foo:~$ echo "ARGS=\" -nginx.scrape-uri http://localhost:81/metrics\"" | sudo tee /etc/default/prometheus-nginx-exporter
+debian@vm-foo:~$ sudo systemctl restart nginx prometheus-nginx-exporter
+----
+
+On vérifie le bon fonctionnement depuis notre poste de travail :
+
+.Nginx qui répond en HTTP :
+[source,console,subs="attributes"]
+----
+$ curl http://vm-{tenant-client1}
+----
+
+.Node-exporter qui affiche les métriques de la VM : 
+[source,console,subs="attributes"]
+----
+$ curl http://vm-{tenant-client1}:9100/metrics
+----
+
+.Prometheus Nginx Exporter qui affiche les métriques du serveur Nginx : 
+[source,console,subs="attributes"]
+----
+$ curl http://vm-{tenant-client1}:9113/metrics
+----
+
+Nous reviendrons plus tard sur le contenu de cette page.
+
+#### Sur le cluster `kube-{tenant-client1}`
+
+.On se positionne sur le contexte du cluster `{tenant-client1}`
+[source,console,subs="attributes"]
+----
+$ kctx kube-{tenant-client1}
+----
+
+.On crée le namespace `{tenant-client1-app1}` dédié à l'application `{tenant-client1-app1}`
+[source,console,subs="attributes"]
+----
+$ kubectl create namespace {tenant-client1-app1}
+$ kns {tenant-client1-app1}
+----
+
+.On déploie l'instance `{tenant-client1-app1}` de l'application de démonstration demo-jres
+[source,console,subs="attributes"]
+----
+$ cd /workspace/jres2022-tuto-obs
+$ helm upgrade {tenant-client1-app1} --install src/app/demo-jres \
+--set ingress.host={tenant-client1-app1}.{tenant-client1} \
+--set extraLabels.tenant={tenant-client1} \
+--set extraLabels.app={tenant-client1-app1} 
+                                     --set extraLabels.app={tenant-client1-app1}  
+--set extraLabels.app={tenant-client1-app1} 
+----
+
+.Vérification que l’application s’exécute correctement et affichage des labels
+[source,console,subs="attributes"]
+----
+$ kubectl get pods --output wide --show-labels
+----
+
+[source,console]
+----
+NAME READY STATUS RESTARTS AGE IP NODE NOMINATED NODE READINESS GATES LABELS
+pif-demo-jres-5f4d6c64-w2hgz 1/1 Running 0 15s 10.42.0.9 172.16.101.123 <none> <none> app.kubernetes.io/instance=pif,app.kubernetes.io/name=demo-jres,app=pif,checksum/app=32aabbfa,pod-template-hash=5f4d6c64,tenant=foo
+----
+
+.Vérification que l’application est joignable
+
+On fait en sorte de pouvoir résoudre le nom `{tenant-client1-app1}.{tenant-client1}`.
+
+.Ajout au fichier /etc/hosts
+[source,console,subs="attributes"]
+----
+{kube-client1-ip} {tenant-client1-app1} {tenant-client1-app1}.{tenant-client1}
+----
+
+Accès depuis un navigateur à l’adresse : http://{tenant-client1-app1}.{tenant-client1}
+
+#### Sur le cluster `kube-{tenant-hoster}-mutu`
+
+.On se positionne sur le contexte du cluster `kube-{tenant-hoster}-mutu`
+[source,console,subs="attributes"]
+----
+$ kctx kube-{tenant-hoster}-mutu
+----
+
+.Création d’un namespace `{tenant-client1-app2}`
+[source,console,subs="attributes"]
+----
+$ kubectl create namespace {tenant-client1-app2}
+$ kns {tenant-client1-app2}
+----
+
+.Déploiement de l’instance `{tenant-client1-app2}` de l’application de démonstration `demo-jres`
+[source,console,subs="attributes"]
+----
+$ helm upgrade {tenant-client1-app2} --install src/app/demo-jres \
+--set ingress.host={tenant-client1-app2}.{tenant-client1} \
+--set extraLabels.tenant={tenant-client1} \
+--set extraLabels.app={tenant-client1-app2} 
+                                     --set extraLabels.app={tenant-client1-app2}  
+--set extraLabels.app={tenant-client1-app2} 
+----
+
+.Vérification que l’application s’exécute et affichage des labels
+[source,console,subs="attributes"]
+----
+$ kubectl get pods --output wide --show-labels
+----
+
+[source,console]
+----
+NAME READY STATUS RESTARTS AGE IP NODE NOMINATED NODE READINESS GATES LABELS
+paf-demo-jres-5d9bbf97d8-7zxcf 1/1 Running 0 9s 10.42.0.9 172.16.102.141 <none> <none> app.kubernetes.io/instance=paf,app.kubernetes.io/name=demo-jres,app=paf,checksum/app=32aabbfa,pod-template-hash=5d9bbf97d8,tenant=foo
+----
+
+.Vérification que l'application est joignable
+
+On fait en sorte de pouvoir résoudre le nom `{tenant-client1-app2}.{tenant-client1}`.
+
+.Ajout au fichier /etc/hosts :
+[source,console,subs="attributes"]
+----
+{kube-hoster-ip} {tenant-client1-app2} {tenant-client1-app2}.{tenant-client1}
+----
+
+Accès depuis un navigateur à l’adresse http://{tenant-client1-app2}.{tenant-client1}
+
+### Pour le compte de l’organisation `{tenant-client2}`
+
+#### Sur le cluster `kube-{tenant-hoster}-mutu`
+
+.Création d’un namespace `{tenant-client2-app1}`
+[source,console,subs="attributes"]
+----
+$ kubectl create namespace {tenant-client2-app1}
+$ kns {tenant-client2-app1}
+----
+
+.Déploiement l’instance `{tenant-client2-app1}` de l’application de démonstration `demo-jres`
+[source,console,subs="attributes"]
+----
+$ helm upgrade {tenant-client2-app1} --install src/app/demo-jres \
+--set ingress.host={tenant-client2-app1}.{tenant-client2} \
+--set extraLabels.tenant={tenant-client2} \
+--set extraLabels.app={tenant-client2-app1} 
+                                     --set extraLabels.app={tenant-client2-app1} 
+--set extraLabels.app={tenant-client2-app1} 
+----
+
+.Vérification que l’application s’exécute
+[source,console,subs="attributes"]
+----
+$ kubectl get pods --output wide --show-labels
+----
+
+[source,console]
+----
+NAME READY STATUS RESTARTS AGE IP NODE NOMINATED NODE READINESS GATES LABELS
+pouf-demo-jres-77c486645b-nmx64 1/1 Running 0 7s 10.42.0.10 172.16.102.141 <none> <none> app.kubernetes.io/instance=pouf,app.kubernetes.io/name=demo-jres,app=pouf,checksum/app=32aabbfa,pod-template-hash=77c486645b,tenant=bar
+----
+
+On fait en sorte de pouvoir résoudre le nom `{tenant-client1-app2}.{tenant-client1}`.
+
+.Ajout au fichier /etc/hosts :
+[source,console,subs="attributes"]
+----
+{kube-hoster-ip} {tenant-client2-app1} {tenant-client2-app1}.{tenant-client2}
+----
+
+Accès depuis un navigateur à l’adresse http://{tenant-client2-app1}.{tenant-client2}
+
+## On résume
+
+Après cette mise en place, nous avons quatre applications appartenant à deux tenants ({tenant-client1} et {tenant-client2}) déployées sur 3 infrastructures : une VM, un cluster Kubernetes appartenant à un des tenants et un autre cluster Kubernetes appartenant à l’hébergeur.
+
+Tous ces composants (VM, clusters Kubernetes et les applications déployées) vont produire des métriques et journaux que l’on va pouvoir récupérer. Ils ont chacun leurs particularités, référencées sous forme de labels qui viendront qualifier toutes les métriques et journaux qui seront centralisés, stockés et requêtés.
+
+image::infra-apps-labels.png[Infrastructures et les applications déployées avec les labels qui les caractérisent]
+
+Les applications sont joignables à ces adresses depuis le poste de travail :
+
+[cols="1,1,1"]
+|===
+|Adresse | Tenant | Description
+| http://vm-{tenant-client1}.{tenant-client1}/ | {tenant-client1} | Serveur Nginx simple avec les métriques activées
+| http://pif.{tenant-client1}/ | {tenant-client1} | demo-jres « pif » sur le cluster du tenant {tenant-client1} qui produit des métriques custom
+| http://paf.{tenant-client1}/ | {tenant-client1} | demo-jres « paf » sur le cluster de l’hébergeur qui produit des métriques custom
+| http://pouf.{tenant-client2}/ | {tenant-client2} | demo-jres « pouf » sur le cluster de l’hébergeur qui produit des métriques custom
+|===
+
+.Extrait du fichier /etc/hosts pour résoudre les noms des applications
+[source,console,subs="attributes"]
+----
+{vm-client1-ip} vm-{tenant-client1} vm-{tenant-client1}.{tenant-client1}
+{kube-client1-ip} kube-{tenant-client1} kube-{tenant-client1}.{tenant-client1}
+{vm-hoster-ip} vm-{tenant-hoster} vm-{tenant-hoster}.{tenant-hoster}
+{kube-hoster-ip} kube-{tenant-hoster}-mutu kube-{tenant-hoster}-mutu.{tenant-hoster}
+
+{kube-client1-ip} {tenant-client1-app1} {tenant-client1-app1}.{tenant-client1}
+{kube-hoster-ip} {tenant-client1-app2} {tenant-client1-app2}.{tenant-client2}
+{kube-hoster-ip} {tenant-client2-app1} {tenant-client2-app1}.{tenant-client2}
+----

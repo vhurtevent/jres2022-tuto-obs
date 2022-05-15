@@ -1,0 +1,3 @@
+- job_name: "vm-tenanta"
+  static_configs:
+  - targets: ["172.16.101.183:9090"]

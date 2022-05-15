@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "demo-jres.fullname" . }}
+  labels:
+    {{- include "demo-jres.labels" . | nindent 4 }}
+    {{- with .Values.extraLabels }}
+    {{- toYaml . | nindent 4}}
+    {{- end }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "demo-jres.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "demo-jres.selectorLabels" . | nindent 8 }}
+        {{- with .Values.extraLabels }}
+        {{- toYaml . | nindent 8}}
+        {{- end }}
+        checksum/app: "{{ .Files.Get "app/main.py" | sha256sum | trunc 8 }}"
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "demo-jres.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: app
+              containerPort: 9090
+              protocol: TCP
+            - name: mgmt
+              containerPort: 9090
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /liveness
+              port: 8080
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: 8080
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+          - name: "app"
+            mountPath: "/home/worker/main.py"
+            subPath: "main.py"
+      volumes:
+      - name: "app"
+        configMap:
+          name: "{{ include "demo-jres.fullname" . }}"
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

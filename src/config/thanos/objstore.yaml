@@ -1,0 +1,7 @@
+type: S3
+config:
+  endpoint: "172.16.102.249:9000"
+  insecure: true
+  bucket: "metrics"
+  access_key: "tuto"
+  secret_key: "tutojres"

@@ -1,0 +1,91 @@
+## Stockage objet cible
+
+Un espace de stockage objet, compatible S3, doit être accessible pour suivre le tutoriel.
+
+Nous utilisons une instance du logiciel Minio que l’on va démarrer sur la VM `vm-{tenant-hoster}`.
+
+Minio est un logiciel libre sous licence GNU Affero General Public License v3.0 réputé pour sa très bonne prise en charge des API S3. Il est très facile à mettre en place et efficace pour des tests rapides.
+
+.Quelques pointeurs pour Minio :
+[cols="1,1"]
+|===
+|Minio |https://min.io/
+|Documentation |https://docs.min.io/
+|Image Docker |https://hub.docker.com/r/minio/minio
+|===
+
+On utilise Docker pour lancer un conteneur à partir de l’image publique officielle Minio.
+L’API S3 sera accessible sur le port 9000 en HTTP et la console d’administration sur le port 9001.
+Pour les besoins du tutoriel, la volumétrie nécessaire n’est pas importante, on spécifie juste l’utilisation d’un volume qui utilisera le dossier `/data` de l’hôte.
+
+Minio peut être utilisé dans des contextes de production dans des déploiements Kubernetes, baremetal ou plus simplement en passerelle S3 comme dans le cadre de ce tutoriel.
+
+[source,console,subs="attributes"]
+----
+$ ssh debian@vm-{tenant-hoster}
+$ sudo mkdir /data
+$ docker run --detach \
+--name minio \
+--publish 9000:9000 \
+--publish 9001:9001 \
+--volume /data:/data \
+minio/minio server /data --console-address ":9001"
+Unable to find image 'minio/minio:latest' locally
+latest: Pulling from minio/minio
+54e56e6f8572: Pull complete 
+4f8ddd7f5a75: Pull complete 
+20259cb27054: Pull complete 
+c4fa7f41817f: Pull complete 
+70c830ca9eb5: Pull complete 
+201c833a22dd: Pull complete 
+a9c289f97128: Pull complete 
+Digest: sha256:e2b8f44d13b03a661c754b23583b72d51347608952070adcdd929a0dfadd2002
+Status: Downloaded newer image for minio/minio:latest
+55e9090edc0ee61052556f222d7d2fabeca05d59e6398cd11ede31ca5f55d191
+----
+
+On peut se connecter à la console d’administration Minio en pointant notre navigateur à l’adresse <http://vm-hoster:9001>.
+Les identifiants par défaut :
+
+[cols="1,1"]
+|===
+|login |minioadmin
+|password |minioadmin
+|===
+
+image::minio-console-minioadmin.png[]
+
+On navigue dans l’interface pour créer un compte dédié au tutoriel, avec les droits `read-write`:
+
+[cols="1,1"]
+|===
+|login |tuto
+|password |tutojres
+|===
+
+image::minio-create-user.png[]
+
+On peut se reconnecter à la console Minio avec ce nouveau compte pour créer les buckets nécessaires au tutoriel. Les buckets sont créés sans stratégie particulière de cycle de vie des objets.
+
+IMPORTANT: On note que pour l'endpoint de l’API S3 on utilise l’adresse IP de la vm-{tenant-hoster} et non son nom DNS `vm-{tenant-hoster}.{tenant-hoster}` qui ne pourra être résolu depuis l’ensemble de l’infrastructure utilisée dans le cadre du tutoriel.
+
+[cols="1,1,1,1"]
+|===
+|Endpoint |Bucket |AccessKey |SecretKey
+|{vm-hoster-ip}:9000 |{bucket-metrics} |tuto |tutojres
+|{vm-hoster-ip}:9000 |{bucket-logs} |tuto |tutojres
+|===
+
+image::minio-create-bucket.png[]
+
+On peut vérifier l’accès aux buckets par le nouveau compte, soit directement depuis la console, soit depuis CLI AWS ou `s3cmd` disponible dans le conteneur.
+
+.Listing des buckets depuis les CLI AWS
+[source,console,subs="attributes"]
+----
+$ export AWS_ACCESS_KEY_ID=tuto
+$ export export AWS_SECRET_ACCESS_KEY=tutojres
+$ aws --endpoint http://vm-hoster:9000 s3 ls
+2022-05-01 16:41:22 logs
+2022-05-01 16:41:31 metrics
+----

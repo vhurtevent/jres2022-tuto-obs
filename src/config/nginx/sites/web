@@ -1,0 +1,13 @@
+## Serveur minimal pour accepter tout type de requete HTTP et logguer les acces
+
+server {
+    listen 80 default_server;
+
+    location / {
+        return 200 "Merci !\n";
+    }
+
+    access_log /var/log/nginx/access-web.log;
+    error_log /var/log/nginx/error-web.log;
+
+}

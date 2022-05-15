@@ -1,0 +1,40 @@
+server:
+  log_level: "info"
+  http_listen_port: 3101
+
+client:
+  url: "http://172.16.102.113:3100/loki/api/v1/push"
+  tenant_id: "foo"
+  external_labels:
+    hostname: "vm-foo"
+    dc: "dc-1"
+    tenant: "foo"
+
+positions:
+  filename: "/tmp/promtail/positions.yaml"
+
+scrape_configs:
+  - job_name: "system"
+    static_configs:
+      - targets:
+          - "localhost"
+        labels:
+          __path__: "/var/log/*log"
+
+  - job_name: "nginx"
+    static_configs:
+      - targets:
+          - "localhost"
+        labels:
+          app: "jres"
+          __path__: "/var/log/nginx/access-jres.log"
+      - targets:
+          - "localhost"
+        labels:
+          app: "metrics"
+          __path__: "/var/log/nginx/access-metrics.log"
+      - targets:
+          - "localhost"
+        labels:
+          app: "sd"
+          __path__: "/var/log/nginx/access-sd.log"

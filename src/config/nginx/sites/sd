@@ -1,0 +1,14 @@
+## Serveur pour exposer le Service Discovery
+## Le Service Discovery est un simple fichier statique JSON dans /var/www
+
+server {
+    listen 0.0.0.0:8080;
+
+    root /var/www;
+    location / {
+       try_files /sd.json =404;
+    }
+
+    access_log /var/log/nginx/access-sd.log;
+    error_log /var/log/nginx/error-sd.log;
+}
